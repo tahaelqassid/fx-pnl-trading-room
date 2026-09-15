@@ -7,3 +7,4 @@ sources:
       - name: trade
       - name: market_rate
       - name: book
+      - name: daily_pnl

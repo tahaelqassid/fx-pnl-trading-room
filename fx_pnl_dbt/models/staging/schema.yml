@@ -1,0 +1,27 @@
+version: 2
+
+models:
+  - name: stg_trade
+    columns:
+      - name: trade_id
+        tests: [unique, not_null]
+      - name: nominal
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false
+      - name: direction
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['BUY', 'SELL']
+
+  - name: stg_market_rate
+    columns:
+      - name: closing_rate
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false

@@ -32,4 +32,11 @@ with DAG(
         bash_command="cd /opt/airflow/project && python engine/run_daily_pnl.py",
     )
 
-    load_data >> run_dbt >> run_engine
+    run_dbt_tests = BashOperator(
+        task_id="run_dbt_tests",
+        bash_command="cd /opt/airflow/fx_pnl_dbt && dbt test",
+    )
+
+    load_data >> run_dbt >> run_engine >> run_dbt_tests
+
+    
