@@ -1,0 +1,3 @@
+name,trader_id,accounting_currency,default_method
+USD_DESK,trader_01,MAD,FIFO
+EUR_DESK,trader_02,MAD,FIFO

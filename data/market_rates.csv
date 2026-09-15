@@ -1,0 +1,4 @@
+currency_pair,rate_date,closing_rate,source
+USD/MAD,2026-09-07,9.9500,BAM Fixing
+EUR/MAD,2026-09-07,10.8000,BAM Fixing
+EUR/USD,2026-09-07,1.0854,Reuters EOD
