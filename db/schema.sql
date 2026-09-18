@@ -4,8 +4,9 @@ CREATE TABLE book (
     trader_id             VARCHAR(50) NOT NULL,
     accounting_currency   VARCHAR(3)  NOT NULL DEFAULT 'MAD',
     default_method        VARCHAR(4)  NOT NULL CHECK (default_method IN ('FIFO','WAC')),
-    UNIQUE (name)
-);
+    UNIQUE (name),
+    stop_loss_threshold_mad NUMERIC(18,2) NOT NULL DEFAULT 50000
+    );
 
 CREATE TABLE trade (
     id             BIGSERIAL PRIMARY KEY,

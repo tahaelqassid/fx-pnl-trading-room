@@ -76,6 +76,6 @@ def compute_and_store(book_id: int, method: str, pnl_date: date):
 if __name__ == "__main__":
     cur.execute("SELECT id, default_method FROM book")
     for book_id, method in cur.fetchall():
-        compute_and_store(book_id, method, date(2026, 9, 7))
+        compute_and_store(book_id, method, date.today())
     cur.close()
     conn.close()
