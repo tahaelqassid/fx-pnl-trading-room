@@ -1,8 +1,8 @@
 """
 FX Trading Room — live dashboard.
-Deliberately the thinnest layer: reads already-validated data, computes
-nothing new. Styled to match real trading-terminal conventions —
-dark background, monospace figures, green/red P&L, dense layout.
+Reads already-validated data; computes nothing new except display-layer
+aggregation. Dark terminal styling; sections: live P&L, market structure,
+backtest.
 """
 import os
 import sys
@@ -19,13 +19,15 @@ from streamlit_autorefresh import st_autorefresh
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
 from engine.risk_model import assess_book
+from engine.market_data import get_candles
+from engine.strategy_signals import structure_signal
+from engine.backtest import run_backtest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 st.set_page_config(page_title="FX Trading Room | Live P&L", layout="wide", page_icon="📈")
-st_autorefresh(interval=4000, key="refresh")
+st_autorefresh(interval=6000, key="refresh")
 
-# ---------- Terminal-style theming ----------
 st.markdown("""
 <style>
     .stApp { background-color: #0a0e14; }
@@ -46,8 +48,6 @@ st.markdown("""
         font-size: 1.15rem; font-weight: 700; color: #e5e7eb;
         border-left: 4px solid #3b82f6; padding-left: 10px; margin: 18px 0 8px 0;
     }
-    .pnl-pos { color: #22c55e; }
-    .pnl-neg { color: #ef4444; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -61,7 +61,7 @@ col_title, col_time = st.columns([3, 1])
 col_title.title("📈 FX Trading Room")
 col_time.markdown(f"<div style='text-align:right; color:#6b7280; padding-top:22px;'>{datetime.now().strftime('%H:%M:%S')} · MAD accounting</div>", unsafe_allow_html=True)
 
-# ---------- Live rate ticker ----------
+# ---------- Rate ticker ----------
 rates_today = pd.read_sql(
     "SELECT currency_pair, closing_rate, source FROM market_rate WHERE rate_date = CURRENT_DATE", conn
 )
@@ -72,7 +72,7 @@ if not rates_today.empty:
     ticker_html += f"<span style='margin-left:auto; color:#4b5563;'>source: {rates_today.iloc[0]['source']}</span></div>"
     st.markdown(ticker_html, unsafe_allow_html=True)
 else:
-    st.warning("No market rate for today yet — run fetch_real_rates.py")
+    st.warning("No market rate for today yet — run: python engine/fetch_real_rates.py")
 
 # ---------- Recalculate control ----------
 if st.button("🔄 Recalculate P&L now", type="primary"):
@@ -88,7 +88,7 @@ if st.button("🔄 Recalculate P&L now", type="primary"):
 
 st.divider()
 
-# ---------- Per-book panels ----------
+# ---------- Per-book P&L panels ----------
 books = pd.read_sql("SELECT id, name, stop_loss_threshold_mad FROM book", conn)
 
 for _, book in books.iterrows():
@@ -147,5 +147,71 @@ for _, book in books.iterrows():
             st.dataframe(styled, hide_index=True, use_container_width=True, height=230)
         else:
             st.caption("No trades yet.")
+
+# ---------- Market structure — real live candles ----------
+st.divider()
+st.markdown("<div class='book-header'>Market Structure — EUR/USD & XAU/USD</div>", unsafe_allow_html=True)
+
+for symbol, label in [("EUR/USD", "EUR/USD"), ("XAU/USD", "Gold (XAU/USD)")]:
+    try:
+        candles = get_candles(symbol, interval="15min", outputsize=80)
+        signal = structure_signal(candles)
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            fig = go.Figure(data=[go.Candlestick(
+                x=candles["datetime"], open=candles["open"], high=candles["high"],
+                low=candles["low"], close=candles["close"],
+                increasing_line_color="#22c55e", decreasing_line_color="#ef4444",
+            )])
+            fig.update_layout(
+                title=label, height=280, margin=dict(l=10, r=10, t=30, b=10),
+                paper_bgcolor="#0a0e14", plot_bgcolor="#0a0e14",
+                font=dict(color="#9ca3af", family="Consolas"),
+                xaxis=dict(gridcolor="#1f2937", rangeslider_visible=False),
+                yaxis=dict(gridcolor="#1f2937"),
+            )
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        with c2:
+            st.metric("Last price", signal.get("last_close", "—"))
+            color = "🟢" if "bullish" in signal["bias"] else "🔴" if "bearish" in signal["bias"] else "⚪"
+            st.markdown(f"**{color} {signal['bias']}**")
+            st.caption(signal["detail"])
+    except Exception as e:
+        st.warning(f"{label}: could not fetch live data ({e})")
+
+# ---------- Backtest ----------
+st.divider()
+st.markdown("<div class='book-header'>Strategy Backtest — real historical data</div>", unsafe_allow_html=True)
+
+bt_symbol = st.selectbox("Symbol", ["EUR/USD", "XAU/USD"])
+if st.button("▶ Run backtest"):
+    with st.spinner("Fetching historical candles and replaying signal..."):
+        trades_df, equity_df, stats = run_backtest(bt_symbol, interval="1h", outputsize=300)
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total trades", stats["total_trades"])
+    c2.metric("Win rate", f"{stats['win_rate']:.1%}")
+    c3.metric("Total P&L (quote ccy)", f"{stats['total_pnl']:,.0f}")
+
+    if not equity_df.empty:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=equity_df["datetime"], y=equity_df["equity"],
+                                  line=dict(color="#3b82f6", width=2), fill="tozeroy",
+                                  fillcolor="rgba(59,130,246,0.1)"))
+        fig.update_layout(
+            height=260, margin=dict(l=10, r=10, t=10, b=10),
+            paper_bgcolor="#0a0e14", plot_bgcolor="#0a0e14",
+            font=dict(color="#9ca3af", family="Consolas"),
+            xaxis=dict(gridcolor="#1f2937"), yaxis=dict(gridcolor="#1f2937", title="Equity"),
+        )
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+    if not trades_df.empty:
+        st.dataframe(trades_df, hide_index=True, use_container_width=True)
+    else:
+        st.info("No trades generated in this window — try a larger outputsize.")
+
+    st.caption("Long-only market-structure signal, backtested on real historical candles. "
+               "Technical-analysis based, not a trading recommendation.")
 
 conn.close()
