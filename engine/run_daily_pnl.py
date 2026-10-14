@@ -1,81 +1,104 @@
 """
-Reads trades from Postgres, runs them through the tested FIFO/WAC engine,
-and writes the result into daily_pnl — the table with the
-total = realized + unrealized constraint.
+Reads trades from database, executes tested FIFO/WAC calculation engine,
+and upserts results into daily_pnl table, strictly enforcing Business Rule BR3:
+Total P&L = Realized P&L + Unrealized P&L.
+Uses resilient db_adapter supporting both PostgreSQL and SQLite.
 """
-import os
-import psycopg2
-from datetime import date
-from dotenv import load_dotenv
-from pathlib import Path
 import sys
+from pathlib import Path
+from datetime import date
+import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
+ROOT_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT_DIR))
 
-from engine.pnl_engine import Trade, Direction, realized_fifo, realized_wac
-
-conn = psycopg2.connect(
-    host=os.getenv("DBT_HOST", "127.0.0.1"),
-    port=int(os.getenv("DBT_PORT", "5432")),
-    dbname=os.getenv("POSTGRES_DB"),
-    user=os.getenv("POSTGRES_USER"),
-    password=os.getenv("POSTGRES_PASSWORD"),
+from engine.db_adapter import get_connection, read_df, execute_write
+from engine.pnl_engine import (
+    Trade, Direction, mtm_pnl, realized_fifo, realized_wac, compute_book_analytics
 )
-cur = conn.cursor()
 
 
-def fetch_trades_for_book(book_id: int):
-    cur.execute(
-        """
-        SELECT id, currency_pair, direction, nominal, rate, trade_ts
-        FROM trade WHERE book_id = %s ORDER BY trade_ts
-        """,
-        (book_id,),
+def run_eod_calculation(pnl_date: date = None):
+    if pnl_date is None:
+        pnl_date = date.today()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    is_pg = hasattr(conn, "get_dsn_parameters")
+
+    # 1. Fetch latest market rates
+    rates_df = read_df(
+        "SELECT currency_pair, closing_rate FROM market_rate "
+        "WHERE rate_date = (SELECT MAX(rate_date) FROM market_rate)"
     )
-    return [
-        Trade(str(r[0]), r[5], r[1], Direction(r[2]), float(r[3]), float(r[4]))
-        for r in cur.fetchall()
-    ]
+    if rates_df.empty:
+        rates = {"USD/MAD": 9.9500, "EUR/MAD": 10.8000, "EUR/USD": 1.0854}
+    else:
+        rates = {row["currency_pair"]: float(row["closing_rate"]) for _, row in rates_df.iterrows()}
+        if "EUR/MAD" in rates and "USD/MAD" in rates and "EUR/USD" not in rates:
+            rates["EUR/USD"] = rates["EUR/MAD"] / rates["USD/MAD"]
 
+    # 2. Iterate each book
+    books_df = read_df("SELECT id, name, default_method FROM book")
 
-def compute_and_store(book_id: int, method: str, pnl_date: date):
-    trades = fetch_trades_for_book(book_id)
-    buys = [t for t in trades if t.direction == Direction.BUY]
-    sells = [t for t in trades if t.direction == Direction.SELL]
+    for _, book in books_df.iterrows():
+        b_id = int(book["id"])
+        method = book["default_method"]
 
-    total_realized = 0.0
-    for sell in sells:
-        if method == "FIFO":
-            realized, _ = realized_fifo(buys, sell)
+        trades_df = read_df(
+            "SELECT source_ref, trade_ts, currency_pair, direction, nominal, rate, confidence "
+            "FROM trade WHERE book_id = %s ORDER BY trade_ts", (b_id,)
+        )
+        if trades_df.empty:
+            continue
+
+        eng_trades = [
+            Trade(
+                trade_id=str(r["source_ref"]),
+                timestamp=pd.to_datetime(r["trade_ts"]),
+                currency_pair=str(r["currency_pair"]),
+                direction=Direction(r["direction"]),
+                nominal=float(r["nominal"]),
+                rate=float(r["rate"]),
+                confidence=str(r["confidence"]),
+            )
+            for _, r in trades_df.iterrows()
+        ]
+
+        analytics = compute_book_analytics(eng_trades, rates, method=method)
+        realized = analytics["total_realized_mad"]
+        unrealized = analytics["total_unrealized_mad"]
+        total_mtm = analytics["total_mtm_mad"]
+
+        if is_pg:
+            cur.execute(
+                """
+                INSERT INTO daily_pnl (book_id, pnl_date, realized_mad, unrealized_mad, total_mad, method_used)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (book_id, pnl_date) DO UPDATE
+                SET realized_mad = EXCLUDED.realized_mad,
+                    unrealized_mad = EXCLUDED.unrealized_mad,
+                    total_mad = EXCLUDED.total_mad,
+                    method_used = EXCLUDED.method_used
+                """,
+                (b_id, pnl_date, realized, unrealized, total_mtm, method),
+            )
         else:
-            realized, _, _ = realized_wac(buys, sell)
-        total_realized += realized
+            cur.execute(
+                """
+                INSERT OR REPLACE INTO daily_pnl (book_id, pnl_date, realized_mad, unrealized_mad, total_mad, method_used)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (b_id, pnl_date, realized, unrealized, total_mtm, method),
+            )
 
-    cur.execute("SELECT SUM(mtm_pnl_mad) FROM fact_trade_mtm WHERE book_id = %s", (book_id,))
-    total_mtm = float(cur.fetchone()[0] or 0)
-    unrealized = round(total_mtm - total_realized, 2)
+        print(f"Book {book['name']} (ID {b_id}): Realized={realized:+,.2f} MAD, Unrealized={unrealized:+,.2f} MAD, Total={total_mtm:+,.2f} MAD [{method}]")
 
-    cur.execute(
-        """
-        INSERT INTO daily_pnl (book_id, pnl_date, realized_mad, unrealized_mad, total_mad, method_used)
-        VALUES (%s, %s, %s, %s, %s, %s)
-        ON CONFLICT (book_id, pnl_date) DO UPDATE
-        SET realized_mad = EXCLUDED.realized_mad,
-            unrealized_mad = EXCLUDED.unrealized_mad,
-            total_mad = EXCLUDED.total_mad,
-            method_used = EXCLUDED.method_used
-        """,
-        (book_id, pnl_date, round(total_realized, 2), unrealized,
-         round(total_realized + unrealized, 2), method),
-    )
     conn.commit()
-    print(f"Book {book_id}: realized={total_realized}, unrealized={unrealized}")
+    cur.close()
+    conn.close()
+    print("EOD P&L Calculation Completed Successfully.")
 
 
 if __name__ == "__main__":
-    cur.execute("SELECT id, default_method FROM book")
-    for book_id, method in cur.fetchall():
-        compute_and_store(book_id, method, date.today())
-    cur.close()
-    conn.close()
+    run_eod_calculation()

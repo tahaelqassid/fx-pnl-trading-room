@@ -1,14 +1,13 @@
-CREATE TABLE book (
+CREATE TABLE IF NOT EXISTS book (
     id                    SERIAL PRIMARY KEY,
-    name                  VARCHAR(50) NOT NULL,
+    name                  VARCHAR(50) NOT NULL UNIQUE,
     trader_id             VARCHAR(50) NOT NULL,
     accounting_currency   VARCHAR(3)  NOT NULL DEFAULT 'MAD',
     default_method        VARCHAR(4)  NOT NULL CHECK (default_method IN ('FIFO','WAC')),
-    UNIQUE (name),
     stop_loss_threshold_mad NUMERIC(18,2) NOT NULL DEFAULT 50000
-    );
+);
 
-CREATE TABLE trade (
+CREATE TABLE IF NOT EXISTS trade (
     id             BIGSERIAL PRIMARY KEY,
     book_id        INTEGER NOT NULL REFERENCES book(id),
     currency_pair  VARCHAR(7) NOT NULL,
@@ -21,7 +20,7 @@ CREATE TABLE trade (
     source_ref     VARCHAR(150) NOT NULL UNIQUE
 );
 
-CREATE TABLE market_rate (
+CREATE TABLE IF NOT EXISTS market_rate (
     currency_pair  VARCHAR(7) NOT NULL,
     rate_date      DATE NOT NULL,
     closing_rate   NUMERIC(18,6) NOT NULL CHECK (closing_rate > 0),
@@ -29,8 +28,7 @@ CREATE TABLE market_rate (
     PRIMARY KEY (currency_pair, rate_date)
 );
 
-
-CREATE TABLE daily_pnl (
+CREATE TABLE IF NOT EXISTS daily_pnl (
     book_id         INTEGER NOT NULL REFERENCES book(id),
     pnl_date        DATE NOT NULL,
     realized_mad    NUMERIC(18,2) NOT NULL,
@@ -41,4 +39,14 @@ CREATE TABLE daily_pnl (
     CHECK (total_mad = realized_mad + unrealized_mad)
 );
 
-
+CREATE TABLE IF NOT EXISTS backoffice_settlement (
+    id             BIGSERIAL PRIMARY KEY,
+    trade_ref      VARCHAR(150) NOT NULL UNIQUE,
+    currency_pair  VARCHAR(7) NOT NULL,
+    direction      VARCHAR(4) NOT NULL,
+    settled_nominal NUMERIC(18,2) NOT NULL,
+    settled_rate   NUMERIC(18,6) NOT NULL,
+    settlement_date DATE NOT NULL,
+    counterparty   VARCHAR(100) NOT NULL,
+    status         VARCHAR(20) NOT NULL DEFAULT 'SETTLED'
+);

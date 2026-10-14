@@ -5,3 +5,5 @@ streamlit-autorefresh
 pandas
 plotly
 requests
+openpyxl
+pytest
