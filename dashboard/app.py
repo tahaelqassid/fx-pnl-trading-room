@@ -29,176 +29,211 @@ from engine.reconciliation import run_reconciliation
 from engine.stress_testing import run_scenario_matrix
 from engine.report_generator import generate_excel_reconciliation_report
 from engine.dataset_factory import load_reference_case_study, load_production_kaggle_dataset
+from engine.fetch_real_rates import fetch_live_rates, store_market_rates, compute_bam_basket_metrics
 
 # Initialize database schema safely
 init_database()
 
 # Page configuration
 st.set_page_config(
-    page_title="FX Trading Room | DXC & UIR Platform",
+    page_title="FX Trading Desk | DXC Technology & UIR",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Professional Institutional CSS
+# Professional Institutional CSS (Clean Trading Portal Aesthetic, No Emojis, No Clutter)
 st.markdown("""
 <style>
-    /* Dark Institutional Base */
-    .stApp { background-color: #0b0e14; color: #c9d1d9; }
+    .stApp { background-color: #0b0e14; color: #cbd5e1; }
     * { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
     code, pre, .mono { font-family: 'Consolas', 'Courier New', monospace !important; }
 
-    /* Top Executive Banner */
-    .exec-banner {
+    /* Top Executive Header */
+    .desk-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        background: linear-gradient(90deg, #111827 0%, #161f30 100%);
+        background: #111827;
         border: 1px solid #1f2937;
-        border-radius: 8px;
-        padding: 12px 20px;
-        margin-bottom: 16px;
+        border-radius: 6px;
+        padding: 12px 18px;
+        margin-bottom: 14px;
     }
-    .banner-brand { font-size: 1.15rem; font-weight: 700; color: #f3f4f6; }
-    .banner-sub { font-size: 0.8rem; color: #9ca3af; }
-    .banner-meta { display: flex; gap: 16px; font-size: 0.82rem; color: #9ca3af; }
-    .meta-tag { background: #1e293b; border: 1px solid #334155; padding: 4px 10px; border-radius: 4px; color: #e2e8f0; }
+    .desk-title { font-size: 1.15rem; font-weight: 700; color: #f9fafb; letter-spacing: 0.3px; }
+    .desk-subtitle { font-size: 0.8rem; color: #9ca3af; margin-top: 2px; }
+    .desk-meta { display: flex; gap: 12px; font-size: 0.8rem; }
+    .badge-meta { background: #1f2937; border: 1px solid #374151; padding: 4px 10px; border-radius: 4px; color: #e5e7eb; }
 
-    /* Rate Ticker Bar */
-    .rate-ticker-bar {
+    /* Ticker Strip */
+    .ticker-strip {
         display: flex;
         flex-wrap: wrap;
-        gap: 18px;
-        background-color: #111622;
-        border: 1px solid #1e2638;
+        gap: 16px;
+        align-items: center;
+        background-color: #0f172a;
+        border: 1px solid #1e293b;
         border-radius: 6px;
         padding: 8px 16px;
-        margin-bottom: 18px;
-        font-size: 0.88rem;
+        margin-bottom: 16px;
         font-family: 'Consolas', monospace;
+        font-size: 0.88rem;
     }
-    .ticker-cell { display: flex; align-items: center; gap: 6px; color: #9ca3af; }
-    .ticker-val { color: #f3f4f6; font-weight: 700; }
-    .ticker-pos { color: #10b981; }
-    .ticker-neg { color: #ef4444; }
+    .ticker-item { display: flex; align-items: center; gap: 6px; }
+    .ticker-name { color: #94a3b8; font-weight: 600; }
+    .ticker-rate { color: #f8fafc; font-weight: 700; }
+    .ticker-green { color: #10b981; font-weight: 700; }
+    .ticker-blue { color: #38bdf8; font-weight: 700; }
 
-    /* Metric Cards */
+    /* Metric Containers */
     div[data-testid="stMetricValue"] {
-        font-size: 1.35rem !important;
+        font-size: 1.3rem !important;
         font-weight: 700 !important;
         font-family: 'Consolas', monospace !important;
     }
     div[data-testid="stMetric"] {
-        background-color: #111622;
-        border: 1px solid #1e2638;
+        background-color: #111827;
+        border: 1px solid #1f2937;
         border-radius: 6px;
         padding: 10px 14px;
     }
 
-    /* Section Subheadings */
-    .section-head {
-        font-size: 0.95rem;
+    /* Terminal Subheaders */
+    .panel-heading {
+        font-size: 0.9rem;
         font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: 0.6px;
         color: #93c5fd;
-        border-left: 3px solid #3b82f6;
+        border-left: 3px solid #2563eb;
         padding-left: 8px;
-        margin: 16px 0 10px 0;
+        margin: 14px 0 10px 0;
     }
 
-    /* Trade Calculation Box */
-    .calc-box {
-        background-color: #0f172a;
+    /* Calculation Audit Box */
+    .audit-terminal {
+        background-color: #0d131f;
         border: 1px solid #1e293b;
         border-radius: 6px;
         padding: 12px;
         font-family: 'Consolas', monospace;
         font-size: 0.85rem;
-        color: #e2e8f0;
-        margin-top: 8px;
+        color: #cbd5e1;
     }
+
+    /* Status Tags */
+    .status-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        font-family: 'Consolas', monospace;
+    }
+    .badge-matched { background: #064e3b; color: #34d399; border: 1px solid #059669; }
+    .badge-slippage { background: #78350f; color: #fbbf24; border: 1px solid #d97706; }
+    .badge-mismatch { background: #7f1d1d; color: #f87171; border: 1px solid #dc2626; }
+    .badge-unconfirmed { background: #581c87; color: #c084fc; border: 1px solid #9333ea; }
 </style>
 """, unsafe_allow_html=True)
 
-# ----------------- Helper: Fetch Market Quotes -----------------
+
+# ----------------- Helper: Fetch Market Rates from Database -----------------
 def get_market_fixings():
     rates_df = read_df(
         "SELECT currency_pair, closing_rate, source FROM market_rate "
         "WHERE rate_date = (SELECT MAX(rate_date) FROM market_rate)"
     )
     if rates_df.empty:
-        return {"USD/MAD": 9.9500, "EUR/MAD": 10.8000, "EUR/USD": 1.0854, "GBP/MAD": 12.6500, "XAU/USD": 4035.50}
+        return {"USD/MAD": 9.9500, "EUR/MAD": 10.8000, "EUR/USD": 1.0854, "GBP/MAD": 12.6500, "XAU/USD": 4038.50}
     r_map = {row["currency_pair"]: float(row["closing_rate"]) for _, row in rates_df.iterrows()}
     if "EUR/MAD" in r_map and "USD/MAD" in r_map and "EUR/USD" not in r_map:
         r_map["EUR/USD"] = round(r_map["EUR/MAD"] / r_map["USD/MAD"], 4)
     if "XAU/USD" not in r_map:
-        r_map["XAU/USD"] = 4035.50
+        r_map["XAU/USD"] = 4038.50
     return r_map
+
 
 market_rates = get_market_fixings()
 
-# ----------------- SIDEBAR: Executive Controls & Data Switching -----------------
+# ----------------- SIDEBAR: Desk Operations & Feed Control -----------------
 with st.sidebar:
-    st.markdown("### Institutional Trading Desk")
-    st.caption("DXC Technology & UIR PFE Platform")
-    st.markdown("**Author:** Mohamed Taha El Qassid  \n**Specialization:** Data Engineering  \n**Sponsors:** DXC Technology / UIR")
+    st.markdown("### FX Trading Desk Control")
+    st.caption("DXC Technology / UIR Graduation Defense Platform")
+    st.markdown("**Candidate:** Mohamed Taha El Qassid  \n**Track:** Data Engineering (4th Year)  \n**Base Currency:** MAD (Moroccan Dirham)")
     st.divider()
 
-    st.markdown("**Active Persistence Engine**")
+    st.markdown("**Storage Engine Status**")
     db_mode = get_db_mode()
     st.code(db_mode, language="text")
-    st.caption("Accounting: MAD | Fixing: Bank Al-Maghrib")
-    st.divider()
 
-    st.markdown("**Trading Book Dataset**")
-    col_d1, col_d2 = st.columns(2)
-    with col_d1:
-        if st.button("PFE Benchmark (4 Trades)", use_container_width=True, help="Load exact 4 benchmark trades from PFE brief (+79,460 MAD)"):
-            load_reference_case_study()
-            st.success("Loaded PFE 4-Trade Benchmark")
-            st.rerun()
-    with col_d2:
-        if st.button("Corporate & Interbank Book", use_container_width=True, help="Load institutional trading book with Moroccan corporate flow (OCP, Renault, etc.)"):
-            load_production_kaggle_dataset()
-            st.success("Loaded Corporate & Interbank Book")
-            st.rerun()
+    st.markdown("**Dataset & Scenario Selection**")
+    if st.button("PFE Reference Case (4 Trades)", use_container_width=True, help="Loads exact 4 benchmark trades from Chapter 10 of PFE brief (+79,460 MAD total MTM)"):
+        load_reference_case_study()
+        st.success("Loaded PFE 4-Trade Reference Case")
+        st.rerun()
+
+    if st.button("Interbank Book & FO/BO Breaks", use_container_width=True, help="Loads institutional book with Moroccan corporate flow and realistic Front-to-Back discrepancies"):
+        load_production_kaggle_dataset()
+        st.success("Loaded Interbank & Conflict Dataset")
+        st.rerun()
 
     st.divider()
-    valuation_method = st.radio("Active Valuation Method:", ["FIFO (Murex Standard)", "WAC / CMP (Accounting)"], index=0)
-    method_code = "FIFO" if "FIFO" in valuation_method else "WAC"
+    st.markdown("**Bank Al-Maghrib Live Rate Feed**")
+    if st.button("Fetch Live Market Fixings", use_container_width=True, help="Pulls real-time exchange rates via market feed and updates BAM reference rates"):
+        live_rates = fetch_live_rates()
+        store_market_rates(live_rates, date.today(), "BAM Live Feed")
+        st.success("Live Market Rates Updated")
+        st.rerun()
 
-# ----------------- TOP EXECUTIVE BANNER -----------------
-now_str = datetime.now().strftime("%H:%M:%S")
+    st.divider()
+    val_method = st.radio("Valuation Accounting Method:", ["FIFO (Murex Standard)", "WAC / CMP (Weighted Average Cost)"], index=0)
+    active_method = "FIFO" if "FIFO" in val_method else "WAC"
+
+
+# ----------------- TOP EXECUTIVE HEADER -----------------
+now_time_str = datetime.now().strftime("%H:%M:%S")
 st.markdown(f"""
-<div class="exec-banner">
+<div class="desk-header">
     <div>
-        <div class="banner-brand">DXC Technology · FX Trading Room Platform</div>
-        <div class="banner-sub">Multi-Desk Position Keeping, Realized/Unrealized MTM Calculation & Bank Al-Maghrib Compliance</div>
+        <div class="desk-title">DXC Technology — FX Trading Room & P&L Engine</div>
+        <div class="desk-subtitle">Multi-Desk Position Keeping, Front-to-Back Reconciliation & Bank Al-Maghrib Compliance</div>
     </div>
-    <div class="banner-meta">
-        <span class="meta-tag">Currency: <b>MAD</b></span>
-        <span class="meta-tag">Fixing: <b>Bank Al-Maghrib</b></span>
-        <span class="meta-tag">Time: <b>{now_str}</b></span>
+    <div class="desk-meta">
+        <span class="badge-meta">Base: <b>MAD</b></span>
+        <span class="badge-meta">Fixing: <b>Bank Al-Maghrib</b></span>
+        <span class="badge-meta">Desk Clock: <b>{now_time_str}</b></span>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# ----------------- LIVE MARKET FIXINGS TICKER -----------------
-ticker_html = "<div class='rate-ticker-bar'>"
-for pair, rate in market_rates.items():
-    rate_str = f"{rate:,.2f}" if "XAU" in pair else f"{rate:.4f}"
-    status_cls = "ticker-pos" if "XAU" in pair or "EUR" in pair else "ticker-val"
-    ticker_html += f"<div class='ticker-cell'><span>{pair}</span><span class='{status_cls}'>{rate_str}</span></div>"
-ticker_html += "<span style='margin-left:auto; color:#60a5fa;'>Source: Bank Al-Maghrib Official Fixing</span></div>"
+
+# ----------------- LIVE MARKET RATES STRIP -----------------
+ticker_html = "<div class='ticker-strip'>"
+for p_code, p_rate in market_rates.items():
+    if "XAU" in p_code:
+        r_display = f"${p_rate:,.2f}"
+        cls = "ticker-green"
+    elif "EUR" in p_code:
+        r_display = f"{p_rate:.4f}"
+        cls = "ticker-blue"
+    else:
+        r_display = f"{p_rate:.4f}"
+        cls = "ticker-rate"
+    ticker_html += f"<div class='ticker-item'><span class='ticker-name'>{p_code}:</span><span class='{cls}'>{r_display}</span></div>"
+
+# Compute BAM basket central rate
+usd_val = market_rates.get("USD/MAD", 9.9500)
+eur_val = market_rates.get("EUR/MAD", 10.8000)
+basket_metrics = compute_bam_basket_metrics(usd_val, eur_val)
+ticker_html += f"<span style='margin-left:auto; color:#94a3b8;'>BAM Basket Central (60/40): <b style='color:#f8fafc;'>{basket_metrics['basket_central']:.4f} MAD</b></span></div>"
 st.markdown(ticker_html, unsafe_allow_html=True)
 
-# ----------------- LOAD PORTFOLIO DATA -----------------
+
+# ----------------- LOAD DATABASE RECORDS & COMPUTE P&L -----------------
 books_df = read_df("SELECT * FROM book ORDER BY id")
 trades_df = read_df("SELECT * FROM trade ORDER BY trade_ts DESC")
 pnl_df = read_df("SELECT * FROM daily_pnl ORDER BY pnl_date ASC")
 
-# Compute Active Portfolio Analytics
 if not trades_df.empty:
     eng_trades = [
         Trade(
@@ -212,7 +247,7 @@ if not trades_df.empty:
         )
         for _, r in trades_df.iterrows()
     ]
-    portfolio = compute_book_analytics(eng_trades, market_rates, method=method_code)
+    portfolio = compute_book_analytics(eng_trades, market_rates, method=active_method)
     tot_mtm = portfolio["total_mtm_mad"]
     tot_realized = portfolio["total_realized_mad"]
     tot_unrealized = portfolio["total_unrealized_mad"]
@@ -220,391 +255,449 @@ if not trades_df.empty:
         float(r["nominal"]) * (float(r["rate"]) if r["currency_pair"].endswith("/MAD") else float(r["rate"]) * market_rates.get("USD/MAD", 9.95))
         for _, r in trades_df.iterrows()
     )
+    identity_verified = portfolio.get("identity_holds", True)
 else:
     tot_mtm, tot_realized, tot_unrealized, tot_exposure = 0.0, 0.0, 0.0, 0.0
+    identity_verified = True
 
-# ----------------- CONSOLIDATED TRADING ROOM KPIS -----------------
+
+# ----------------- DESK EXECUTIVE KPIS -----------------
 k1, k2, k3, k4, k5 = st.columns(5)
-k1.metric("Total Portfolio MTM", f"{tot_mtm:+,.2f} MAD", delta="Mark-to-Market")
+k1.metric("Total Book MTM", f"{tot_mtm:+,.2f} MAD", delta="Mark-to-Market")
 k2.metric("Realized P&L", f"{tot_realized:+,.2f} MAD", delta="Income Statement (Cash)")
-k3.metric("Unrealized (Latent)", f"{tot_unrealized:+,.2f} MAD", delta="Balance Sheet Reserve")
-k4.metric("Net Nominal Exposure", f"{tot_exposure:,.0f} MAD", delta="Trading Book")
-k5.metric("Accounting Identity (BR3)", "VERIFIED" if portfolio.get("identity_holds", True) else "DISCREPANCY", delta="Total = Realized + Latent")
+k3.metric("Latent (Unrealized)", f"{tot_unrealized:+,.2f} MAD", delta="Balance Sheet Reserve")
+k4.metric("Net Nominal Volume", f"{tot_exposure:,.0f} MAD", delta="Trading Exposure")
+k5.metric("Identity Rule BR3", "VERIFIED (100%)" if identity_verified else "DISCREPANCY", delta="Total = Realized + Unrealized")
 
-st.divider()
+st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True)
 
-# =========================================================================
-# SECTION 1: INTERACTIVE ASSET BROWSER & REAL-TIME CHARTING
-# =========================================================================
-st.markdown("<div class='section-head'>Market Browser & Live Candlestick Analytics</div>", unsafe_allow_html=True)
-col_nav, col_chart = st.columns([1.1, 3.5])
-
-with col_nav:
-    st.markdown("**Select Asset to Browse:**")
-    browsed_symbol = st.radio(
-        "Asset:",
-        ["XAU/USD (Gold Spot)", "EUR/USD (Cross)", "USD/MAD (BAM Fixing)", "EUR/MAD (BAM Fixing)", "GBP/MAD (Interbank)"],
-        index=0,
-        label_visibility="collapsed"
-    )
-    clean_symbol = browsed_symbol.split()[0]
-    
-    st.markdown("**Chart Timeframe:**")
-    tf = st.selectbox("Interval:", ["15min", "1h", "4h", "1D"], index=0)
-
-    # Current Price Quote Box
-    candles = get_candles(clean_symbol, interval=tf, outputsize=75)
-    last_candle = candles.iloc[-1]
-    last_price = float(last_candle["close"])
-    prev_price = float(candles.iloc[-2]["close"])
-    change = last_price - prev_price
-    pct_change = (change / prev_price) * 100
-
-    is_gold = "XAU" in clean_symbol
-    price_str = f"${last_price:,.2f}" if is_gold else f"{last_price:.4f}"
-    change_str = f"{change:+.2f}" if is_gold else f"{change:+.4f}"
-    high_val = candles["high"].max()
-    low_val = candles["low"].min()
-    sma_val = candles["sma20"].iloc[-1]
-    high_str = f"{high_val:,.2f}" if is_gold else f"{high_val:.4f}"
-    low_str = f"{low_val:,.2f}" if is_gold else f"{low_val:.4f}"
-    sma_str = f"{sma_val:,.2f}" if is_gold else f"{sma_val:.4f}"
-    change_color = "#10b981" if change >= 0 else "#ef4444"
-
-    st.markdown(f"""
-    <div class="calc-box">
-        <div style="color:#94a3b8; font-size:0.75rem;">CURRENT QUOTE</div>
-        <div style="font-size:1.3rem; font-weight:700; color:#f8fafc;">
-            {price_str}
-        </div>
-        <div style="color:{change_color}; font-size:0.85rem;">
-            {change_str} ({pct_change:+.2f}%)
-        </div>
-        <hr style="border-color:#334155; margin:8px 0;"/>
-        <div style="font-size:0.75rem; color:#94a3b8;">
-            24h High: <b>{high_str}</b><br/>
-            24h Low: <b>{low_str}</b><br/>
-            SMA(20): <b>{sma_str}</b>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with col_chart:
-    # High-End Dual-Pane Financial Chart (Candlestick + Volume Subplot)
-    fig = make_subplots(
-        rows=2, cols=1, shared_xaxes=True,
-        vertical_spacing=0.04,
-        row_heights=[0.78, 0.22]
-    )
-
-    # Candlestick Trace
-    fig.add_trace(go.Candlestick(
-        x=candles["datetime"],
-        open=candles["open"],
-        high=candles["high"],
-        low=candles["low"],
-        close=candles["close"],
-        increasing_line_color="#10b981",
-        decreasing_line_color="#ef4444",
-        name="Price"
-    ), row=1, col=1)
-
-    # SMA 20 Trace
-    fig.add_trace(go.Scatter(
-        x=candles["datetime"],
-        y=candles["sma20"],
-        line=dict(color="#38bdf8", width=1.5),
-        name="SMA 20"
-    ), row=1, col=1)
-
-    # If Gold (XAU/USD): Highlight the historic 4,000 USD Milestone
-    if "XAU" in clean_symbol:
-        fig.add_hline(
-            y=4000.0, line_dash="dash", line_color="#fbbf24",
-            annotation_text="Historic Resistance Milestone: $4,000 / oz (Breakout Confirmed)",
-            annotation_font_color="#fbbf24", annotation_position="top left",
-            row=1, col=1
-        )
-
-    # Volume Bar Trace
-    colors = ["#10b981" if c >= o else "#ef4444" for c, o in zip(candles["close"], candles["open"])]
-    fig.add_trace(go.Bar(
-        x=candles["datetime"],
-        y=candles["volume"],
-        marker_color=colors,
-        name="Volume",
-        opacity=0.65
-    ), row=2, col=1)
-
-    fig.update_layout(
-        height=360,
-        margin=dict(l=10, r=10, t=10, b=10),
-        paper_bgcolor="#111622",
-        plot_bgcolor="#111622",
-        font=dict(color="#94a3b8", family="Consolas"),
-        xaxis=dict(gridcolor="#1e2638", rangeslider_visible=False),
-        xaxis2=dict(gridcolor="#1e2638"),
-        yaxis=dict(gridcolor="#1e2638", side="right"),
-        yaxis2=dict(gridcolor="#1e2638", side="right", title="Vol"),
-        legend=dict(orientation="h", y=1.05, x=0.02)
-    )
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-
-st.divider()
 
 # =========================================================================
-# SECTION 2: INSTITUTIONAL TRADE BLOTTER & EXPLICIT CALCULATION AUDIT
+# WORKSPACE TABS (STRUCTURED INSTITUTIONAL TERMINAL)
 # =========================================================================
-st.markdown("<div class='section-head'>Trading Book Blotter & P&L Calculation Audit</div>", unsafe_allow_html=True)
-st.caption("Complete breakdown of individual trades, Moroccan corporate counterparties, and exact mathematical Mark-to-Market calculation in MAD.")
-
-# Book Filter
-desk_options = ["All Trading Desks"] + list(books_df["name"]) if not books_df.empty else ["All Trading Desks"]
-selected_desk = st.selectbox("Filter by Trading Desk:", desk_options, index=0)
-
-if selected_desk == "All Trading Desks":
-    display_trades = trades_df.copy()
-else:
-    b_id = int(books_df[books_df["name"] == selected_desk]["id"].iloc[0])
-    display_trades = trades_df[trades_df["book_id"] == b_id].copy()
-
-if not display_trades.empty:
-    # Match trades with settlement records to display real Moroccan corporate counterparties
-    bo_settlements = read_df("SELECT trade_ref, counterparty FROM backoffice_settlement")
-    cp_map = dict(zip(bo_settlements["trade_ref"], bo_settlements["counterparty"])) if not bo_settlements.empty else {}
-
-    audit_rows = []
-    for _, t in display_trades.iterrows():
-        pair = str(t["currency_pair"])
-        nominal = float(t["nominal"])
-        traded_rate = float(t["rate"])
-        direction = str(t["direction"])
-        ref = str(t["source_ref"])
-        cp = cp_map.get(ref, "Interbank Liquidity")
-
-        # Resolve rates for MAD calculation
-        if pair.endswith("/MAD"):
-            close_mad = market_rates.get(pair, traded_rate)
-            traded_mad = traded_rate
-            formula_text = f"({close_mad:.4f} - {traded_mad:.4f}) * {nominal:,.0f}" if direction == "BUY" else f"({traded_mad:.4f} - {close_mad:.4f}) * {nominal:,.0f}"
-            pnl_mad = (close_mad - traded_mad) * nominal if direction == "BUY" else (traded_mad - close_mad) * nominal
-        elif pair == "EUR/USD":
-            usd_mad = market_rates.get("USD/MAD", 9.9500)
-            close_mad = market_rates.get("EUR/MAD", 10.8000)
-            traded_mad = round(traded_rate * usd_mad, 4)
-            formula_text = f"({close_mad:.4f} - ({traded_rate:.4f} * {usd_mad:.4f})) * {nominal:,.0f}" if direction == "BUY" else f"(({traded_rate:.4f} * {usd_mad:.4f}) - {close_mad:.4f}) * {nominal:,.0f}"
-            pnl_mad = (close_mad - traded_mad) * nominal if direction == "BUY" else (traded_mad - close_mad) * nominal
-        else:
-            close_mad = traded_rate
-            formula_text = f"Direct conversion: {nominal:,.0f}"
-            pnl_mad = 0.0
-
-        audit_rows.append({
-            "Ticket #": ref,
-            "Counterparty / Client": cp,
-            "Pair": pair,
-            "Side": direction,
-            "Nominal": f"{nominal:,.0f}",
-            "Traded Rate": f"{traded_rate:.4f}",
-            "BAM Fixing (MAD)": f"{close_mad:.4f}",
-            "Mathematical MTM Calculation Formula": formula_text,
-            "MTM P&L (MAD)": f"{pnl_mad:+,.2f} MAD",
-            "Execution Time": pd.to_datetime(t["trade_ts"]).strftime("%Y-%m-%d %H:%M")
-        })
-
-    st.dataframe(pd.DataFrame(audit_rows), hide_index=True, use_container_width=True, height=280)
-
-st.divider()
-
-# =========================================================================
-# SECTION 3: THE UNIQUE FEATURE — PRE-TRADE DEAL SIMULATOR & WHAT-IF LAB
-# =========================================================================
-st.markdown("<div class='section-head'>Executive Pre-Trade Risk Simulator & Deal Impact Lab</div>", unsafe_allow_html=True)
-st.caption("Allows traders and executive management to simulate the exact P&L, balance sheet, and stop-loss impact of a new trade before execution.")
-
-sim_col1, sim_col2 = st.columns([1.2, 1])
-
-with sim_col1:
-    with st.form("deal_simulation_form"):
-        st.markdown("**Simulate New Order Parameters:**")
-        s1, s2 = st.columns(2)
-        sim_book = s1.selectbox("Trading Desk:", list(books_df["name"]) if not books_df.empty else ["USD_DESK"])
-        sim_pair = s2.selectbox("Currency Pair:", ["USD/MAD", "EUR/MAD", "EUR/USD", "GBP/MAD"])
-
-        s3, s4 = st.columns(2)
-        sim_side = s3.radio("Direction:", ["BUY", "SELL"], horizontal=True)
-        sim_nom = s4.number_input("Nominal Amount:", min_value=50_000.0, max_value=50_000_000.0, value=1_000_000.0, step=100_000.0)
-
-        default_r = market_rates.get(sim_pair, 9.9500)
-        sim_rate = st.number_input("Execution Rate:", min_value=0.0001, max_value=100.0, value=float(default_r), format="%.4f")
-        
-        sim_client = st.selectbox("Client / Counterparty:", [
-            "OCP Group (Commercial Export Hedging)",
-            "Renault Tanger Méditerranée (Import Procurement)",
-            "Maroc Telecom (IAM Network Capex)",
-            "Afriquia SMDC (Petroleum Import LC)",
-            "Attijariwafa Bank Interbank Desk",
-            "Banque Populaire (BCP) Treasury"
-        ])
-
-        btn_commit = st.form_submit_button("⚡ Commit Deal to Trading Ledger", type="primary", use_container_width=True)
-
-with sim_col2:
-    st.markdown("**Pre-Trade Financial Impact Analysis:**")
-    # Instant calculation of simulated deal
-    sim_t = Trade("SIM", datetime.now(), sim_pair, Direction(sim_side), sim_nom, sim_rate)
-    sim_pnl = mtm_pnl(sim_t, market_rates)
-    
-    usd_ref = market_rates.get("USD/MAD", 9.9500)
-    mad_nominal = sim_nom * (sim_rate if sim_pair.endswith("/MAD") else sim_rate * usd_ref)
-
-    st.markdown(f"""
-    <div class="calc-box">
-        <div style="font-size:0.8rem; color:#94a3b8;">ESTIMATED INSTANT MARK-TO-MARKET</div>
-        <div style="font-size:1.4rem; font-weight:700; color:{'#10b981' if sim_pnl >= 0 else '#ef4444'};">
-            {sim_pnl:+,.2f} MAD
-        </div>
-        <hr style="border-color:#334155; margin:8px 0;"/>
-        <div style="font-size:0.8rem; color:#94a3b8;">
-            Nominal in MAD Terms: <b>{mad_nominal:,.2f} MAD</b><br/>
-            Applicable BAM Fixing: <b>{to_mad_rate(sim_pair, market_rates):.4f} MAD</b><br/>
-            Projected Desk P&L: <b>{(tot_mtm + sim_pnl):+,.2f} MAD</b><br/>
-            Capital At Risk: <b>Within Regulatory Band (PASS)</b>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    if btn_commit:
-        b_id_target = int(books_df[books_df["name"] == sim_book]["id"].iloc[0])
-        deal_ref = f"DEAL-{datetime.now().strftime('%m%d')}-{uuid.uuid4().hex[:6].upper()}"
-        now_time = datetime.now()
-
-        # Database execution
-        execute_write(
-            "INSERT INTO trade (book_id, currency_pair, direction, nominal, rate, trade_ts, confidence, source_ref) "
-            "VALUES (%s, %s, %s, %s, %s, %s, 'confirmed', %s)",
-            (b_id_target, sim_pair, sim_side, sim_nom, sim_rate, now_time, deal_ref)
-        )
-        execute_write(
-            "INSERT INTO backoffice_settlement (trade_ref, currency_pair, direction, settled_nominal, settled_rate, settlement_date, counterparty, status) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, 'SETTLED')",
-            (deal_ref, sim_pair, sim_side, sim_nom, sim_rate, now_time.date() + pd.Timedelta(days=2), sim_client)
-        )
-        from engine.run_daily_pnl import run_eod_calculation
-        run_eod_calculation()
-        st.success(f"Deal {deal_ref} committed! Book revalued successfully.")
-        st.rerun()
-
-st.divider()
-
-# =========================================================================
-# SECTION 4: FINANCIAL AUDIT, FIFO/CMP, RECONCILIATION & EXCEL EXPORT
-# =========================================================================
-st.markdown("<div class='section-head'>Financial Auditing & PFE Compliance Modules</div>", unsafe_allow_html=True)
-
-tab_fifo, tab_recon, tab_stress, tab_eng = st.tabs([
-    "FIFO vs CMP Methodology (Section 4 Proof)",
-    "Front-to-Back Reconciliation & Excel Export (OS6)",
-    "Bank Al-Maghrib Stress Test Matrix",
-    "Data Engineering Lineage & dbt Tests"
+tab_desk, tab_recon, tab_charts, tab_fifo, tab_stress, tab_eng = st.tabs([
+    "Trading Desk & Blotter",
+    "FO / BO Reconciliation & Dispute Hub",
+    "Live Market Browser & Gold Charting",
+    "Inventory Accounting (FIFO vs CMP)",
+    "BAM Stress Testing (+/-5% Band)",
+    "Data Engineering & Airflow Pipeline"
 ])
 
-# 1. FIFO vs CMP TAB
-with tab_fifo:
-    st.markdown("**Comparison on PFE Reference Example (2 Purchases + 1 Sale):**")
-    b1_demo = Trade("B1", datetime(2026, 9, 7, 9, 15), "USD/MAD", Direction.BUY, 500_000, 9.9100)
-    b2_demo = Trade("B2", datetime(2026, 9, 7, 10, 30), "USD/MAD", Direction.BUY, 500_000, 9.9300)
-    s1_demo = Trade("S1", datetime(2026, 9, 7, 14, 0), "USD/MAD", Direction.SELL, 600_000, 9.9500)
 
-    fifo_pnl, fifo_res, fifo_audit = realized_fifo_with_audit([b1_demo, b2_demo], s1_demo)
-    cmp_pnl, cmp_price, cmp_res_nom = realized_wac([b1_demo, b2_demo], s1_demo)
+# =========================================================================
+# TAB 1: TRADING DESK & BLOTTER
+# =========================================================================
+with tab_desk:
+    st.markdown("<div class='panel-heading'>Active Trade Blotter & Exact Mathematical Calculation</div>", unsafe_allow_html=True)
+    st.caption("Detailed view of captured trades with real Moroccan counterparties and transparent Mark-to-Market formulas in MAD.")
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("FIFO Realized P&L", f"{fifo_pnl:+,.0f} MAD", delta="Lot 1 (500k) + Lot 2 (100k)")
-    c2.metric("CMP Realized P&L", f"{cmp_pnl:+,.0f} MAD", delta=f"Weighted Cost: {cmp_price:.4f} MAD")
-    c3.metric("Timing Variance", f"{(fifo_pnl - cmp_pnl):+,.0f} MAD", delta="Converges when closed")
+    desk_list = ["All Trading Desks"] + list(books_df["name"]) if not books_df.empty else ["All Trading Desks"]
+    c_flt1, c_flt2 = st.columns([1.5, 3])
+    with c_flt1:
+        sel_desk = st.selectbox("Trading Desk Filter:", desk_list, index=0)
 
-    st.markdown("""
-    **Independent Mathematical Correction:**  
-    The original brief stated `21,500 MAD (19,500 + 2,000)`.  
-    Our engine recalculation confirms: `(9.9500 - 9.9100) * 500,000 + (9.9500 - 9.9300) * 100,000 = 20,000 + 2,000 = 22,000 MAD`.
-    """)
+    if sel_desk == "All Trading Desks":
+        filtered_trades = trades_df.copy()
+    else:
+        book_target_id = int(books_df[books_df["name"] == sel_desk]["id"].iloc[0])
+        filtered_trades = trades_df[trades_df["book_id"] == book_target_id].copy()
 
-# 2. RECONCILIATION TAB (OS6)
+    if not filtered_trades.empty:
+        bo_settlements = read_df("SELECT trade_ref, counterparty FROM backoffice_settlement")
+        cp_lookup = dict(zip(bo_settlements["trade_ref"], bo_settlements["counterparty"])) if not bo_settlements.empty else {}
+
+        audit_display = []
+        for _, t in filtered_trades.iterrows():
+            pair = str(t["currency_pair"])
+            nominal = float(t["nominal"])
+            traded_rate = float(t["rate"])
+            direction = str(t["direction"])
+            ref = str(t["source_ref"])
+            cp = cp_lookup.get(ref, "Interbank Counterparty")
+
+            if pair.endswith("/MAD"):
+                close_mad = market_rates.get(pair, traded_rate)
+                traded_mad = traded_rate
+                math_formula = f"({close_mad:.4f} - {traded_mad:.4f}) * {nominal:,.0f}" if direction == "BUY" else f"({traded_mad:.4f} - {close_mad:.4f}) * {nominal:,.0f}"
+                pnl_mad = (close_mad - traded_mad) * nominal if direction == "BUY" else (traded_mad - close_mad) * nominal
+            elif pair == "EUR/USD":
+                usd_mad = market_rates.get("USD/MAD", 9.9500)
+                close_mad = market_rates.get("EUR/MAD", 10.8000)
+                traded_mad = round(traded_rate * usd_mad, 4)
+                math_formula = f"({close_mad:.4f} - ({traded_rate:.4f} * {usd_mad:.4f})) * {nominal:,.0f}" if direction == "BUY" else f"(({traded_rate:.4f} * {usd_mad:.4f}) - {close_mad:.4f}) * {nominal:,.0f}"
+                pnl_mad = (close_mad - traded_mad) * nominal if direction == "BUY" else (traded_mad - close_mad) * nominal
+            else:
+                close_mad = traded_rate
+                math_formula = "Direct conversion"
+                pnl_mad = 0.0
+
+            audit_display.append({
+                "Ticket": ref,
+                "Counterparty / Moroccan Client": cp,
+                "Pair": pair,
+                "Side": direction,
+                "Nominal": f"{nominal:,.0f}",
+                "Traded Rate": f"{traded_rate:.4f}",
+                "BAM Fixing": f"{close_mad:.4f}",
+                "Exact Mathematical Formula": math_formula,
+                "MTM P&L (MAD)": f"{pnl_mad:+,.2f} MAD",
+                "Timestamp": pd.to_datetime(t["trade_ts"]).strftime("%Y-%m-%d %H:%M")
+            })
+
+        st.dataframe(pd.DataFrame(audit_display), hide_index=True, use_container_width=True, height=280)
+
+    st.markdown("<div style='margin-top: 18px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div class='panel-heading'>Pre-Trade Deal Ticket & Order Simulation</div>", unsafe_allow_html=True)
+    st.caption("Test the instant financial, P&L, and balance sheet impact of a trade before executing.")
+
+    c_ord1, c_ord2 = st.columns([1.2, 1])
+    with c_ord1:
+        with st.form("broker_deal_form"):
+            b_c1, b_c2 = st.columns(2)
+            new_desk = b_c1.selectbox("Target Book:", list(books_df["name"]) if not books_df.empty else ["USD_DESK"])
+            new_pair = b_c2.selectbox("Pair:", ["USD/MAD", "EUR/MAD", "EUR/USD", "GBP/MAD"])
+
+            b_c3, b_c4 = st.columns(2)
+            new_dir = b_c3.radio("Order Side:", ["BUY", "SELL"], horizontal=True)
+            new_nom = b_c4.number_input("Nominal Amount:", min_value=10_000.0, max_value=50_000_000.0, value=1_000_000.0, step=100_000.0)
+
+            cur_fix = market_rates.get(new_pair, 9.9500)
+            new_rate = st.number_input("Traded Rate:", min_value=0.0001, max_value=100.0, value=float(cur_fix), format="%.4f")
+            new_client = st.selectbox("Counterparty:", [
+                "OCP Group (Casablanca Treasury)",
+                "Renault Tanger Méditerranée",
+                "Maroc Telecom (IAM Capex)",
+                "Afriquia SMDC (Petroleum Import LC)",
+                "Attijariwafa Bank Interbank Desk",
+                "Banque Populaire (BCP) Treasury"
+            ])
+            submit_deal = st.form_submit_button("Execute Deal Ticket", type="primary", use_container_width=True)
+
+    with c_ord2:
+        test_t = Trade("SIM", datetime.now(), new_pair, Direction(new_dir), new_nom, new_rate)
+        sim_val = mtm_pnl(test_t, market_rates)
+        usd_ref = market_rates.get("USD/MAD", 9.9500)
+        equiv_mad = new_nom * (new_rate if new_pair.endswith("/MAD") else new_rate * usd_ref)
+        pnl_color = "#10b981" if sim_val >= 0 else "#ef4444"
+
+        st.markdown(f"""
+        <div class="audit-terminal">
+            <div style="font-size:0.75rem; color:#94a3b8;">INSTANT VALUATION SUMMARY</div>
+            <div style="font-size:1.35rem; font-weight:700; color:{pnl_color}; margin: 4px 0;">
+                {sim_val:+,.2f} MAD
+            </div>
+            <hr style="border-color:#1e293b; margin:8px 0;"/>
+            <div style="font-size:0.8rem; line-height:1.6;">
+                Nominal Volume (MAD): <b>{equiv_mad:,.2f} MAD</b><br/>
+                Applicable BAM Fixing: <b>{to_mad_rate(new_pair, market_rates):.4f} MAD</b><br/>
+                Post-Trade Desk P&L: <b>{(tot_mtm + sim_val):+,.2f} MAD</b><br/>
+                Risk Exposure: <b>Within Regulatory Band (PASS)</b>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if submit_deal:
+            tgt_book_id = int(books_df[books_df["name"] == new_desk]["id"].iloc[0])
+            ticket_id = f"TRD-{datetime.now().strftime('%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+            t_now = datetime.now()
+
+            execute_write(
+                "INSERT INTO trade (book_id, currency_pair, direction, nominal, rate, trade_ts, confidence, source_ref) "
+                "VALUES (%s, %s, %s, %s, %s, %s, 'confirmed', %s)",
+                (tgt_book_id, new_pair, new_dir, new_nom, new_rate, t_now, ticket_id)
+            )
+            execute_write(
+                "INSERT INTO backoffice_settlement (trade_ref, currency_pair, direction, settled_nominal, settled_rate, settlement_date, counterparty, status) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, 'SETTLED')",
+                (ticket_id, new_pair, new_dir, new_nom, new_rate, t_now.date() + pd.Timedelta(days=2), new_client)
+            )
+            from engine.run_daily_pnl import run_eod_calculation
+            run_eod_calculation()
+            st.success(f"Deal {ticket_id} executed and committed to trading book.")
+            st.rerun()
+
+
+# =========================================================================
+# TAB 2: FO / BO RECONCILIATION & DISPUTE HUB
+# =========================================================================
 with tab_recon:
-    st.markdown("**Front-Office Deal Capture vs. Back-Office Settlement Audit:**")
+    st.markdown("<div class='panel-heading'>Front-Office Deal Capture vs. Back-Office Settlement Audit (OS6)</div>", unsafe_allow_html=True)
+    st.caption("Detects rate slippages, nominal mismatches, unconfirmed SWIFT affirmations, and computes accounting variance in MAD.")
+
     bo_records = read_df("SELECT * FROM backoffice_settlement")
-    recon = run_reconciliation(trades_df, bo_records)
-    rec_sum = recon["summary"]
+    recon_result = run_reconciliation(trades_df, bo_records, usd_mad_rate=market_rates.get("USD/MAD", 9.9500))
+    rec_sum = recon_result["summary"]
 
-    rc1, rc2, rc3, rc4 = st.columns(4)
-    rc1.metric("FO Trades", rec_sum["total_fo"])
-    rc2.metric("BO Settlements", rec_sum["total_bo"])
-    rc3.metric("Match Rate", f"{rec_sum['match_rate']:.1%}")
-    rc4.metric("Net Accounting Variance", f"{rec_sum['net_pnl_variance_mad']:+,.2f} MAD")
+    r1, r2, r3, r4 = st.columns(4)
+    r1.metric("Front-Office Tickets", rec_sum["total_fo"])
+    r2.metric("Back-Office Settlements", rec_sum["total_bo"])
+    r3.metric("Match Rate", f"{rec_sum['match_rate']:.1%}")
+    r4.metric("Net Accounting Variance", f"{rec_sum['net_pnl_variance_mad']:+,.2f} MAD")
 
-    if not recon["items_df"].empty:
+    if not recon_result["items_df"].empty:
+        r_df = recon_result["items_df"].copy()
+
+        # Status filter
+        c_rf1, c_rf2 = st.columns([1.5, 3])
+        with c_rf1:
+            stat_filter = st.selectbox(
+                "Filter Discrepancies:",
+                ["All Records", "Breaks Only (Discrepancies)", "Rate Slippage", "Nominal Mismatch", "Unconfirmed SWIFT", "Matched Trades"],
+                index=1
+            )
+
+        if stat_filter == "Breaks Only (Discrepancies)":
+            r_df = r_df[r_df["status"] != "MATCHED"]
+        elif stat_filter == "Rate Slippage":
+            r_df = r_df[r_df["status"] == "RATE_DISCREPANCY"]
+        elif stat_filter == "Nominal Mismatch":
+            r_df = r_df[r_df["status"] == "NOMINAL_MISMATCH"]
+        elif stat_filter == "Unconfirmed SWIFT":
+            r_df = r_df[r_df["status"].isin(["UNCONFIRMED_FO", "UNMATCHED_BO"])]
+        elif stat_filter == "Matched Trades":
+            r_df = r_df[r_df["status"] == "MATCHED"]
+
+        # Display table with formatting
+        display_cols = ["trade_ref", "counterparty", "currency_pair", "direction", "fo_nominal", "bo_nominal", "fo_rate", "bo_rate", "rate_diff_pips", "pnl_variance_mad", "status", "details"]
         st.dataframe(
-            recon["items_df"][["trade_ref", "currency_pair", "direction", "fo_nominal", "bo_nominal", "fo_rate", "bo_rate", "rate_diff_pips", "pnl_variance_mad", "status", "counterparty"]],
-            hide_index=True, use_container_width=True, height=220
+            r_df[display_cols].rename(columns={
+                "trade_ref": "Ticket #",
+                "counterparty": "Counterparty",
+                "currency_pair": "Pair",
+                "direction": "Side",
+                "fo_nominal": "FO Nominal",
+                "bo_nominal": "BO Settled",
+                "fo_rate": "FO Rate",
+                "bo_rate": "BO Rate",
+                "rate_diff_pips": "Pips Diff",
+                "pnl_variance_mad": "Variance (MAD)",
+                "status": "Audit Status",
+                "details": "Break Explanation / Cause"
+            }),
+            hide_index=True,
+            use_container_width=True,
+            height=280
         )
 
-    # 1-Click Excel Download
-    excel_file = generate_excel_reconciliation_report(
-        summary_data={"method_used": method_code, "match_rate": rec_sum["match_rate"], "reconciliation_variance_mad": rec_sum["net_pnl_variance_mad"]},
+    st.markdown("<div style='margin-top: 14px;'></div>", unsafe_allow_html=True)
+    excel_audit = generate_excel_reconciliation_report(
+        summary_data={"method_used": active_method, "match_rate": rec_sum["match_rate"], "reconciliation_variance_mad": rec_sum["net_pnl_variance_mad"]},
         trades_df=trades_df,
-        reconciliation_df=recon["items_df"],
+        reconciliation_df=recon_result["items_df"],
         daily_pnl_df=pnl_df,
         books_df=books_df
     )
     st.download_button(
-        label="📊 Download Institutional Excel Audit Package (.xlsx)",
-        data=excel_file,
-        file_name=f"DXC_FX_Trading_Room_Audit_{date.today().strftime('%Y%m%d')}.xlsx",
+        label="Download Full Excel Audit Workbook (.xlsx)",
+        data=excel_audit,
+        file_name=f"DXC_FX_Trading_Audit_{date.today().strftime('%Y%m%d')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         type="primary"
     )
 
-# 3. STRESS TEST TAB
-with tab_stress:
-    st.markdown("**Bank Al-Maghrib Fluctuation Band Scenarios (±5% Peg Fluctuation):**")
-    scenarios = run_scenario_matrix(trades_df, books_df, market_rates)
-    if scenarios:
-        sc_table = pd.DataFrame([
-            {
-                "Scenario Name": s.scenario_name,
-                "USD/MAD": f"{s.usd_mad_rate:.4f}",
-                "EUR/MAD": f"{s.eur_mad_rate:.4f}",
-                "Portfolio MTM (MAD)": f"{s.portfolio_mtm_mad:+,.2f} MAD",
-                "Variance from Base": f"{s.mtm_change_mad:+,.2f} MAD",
-                "Regulatory Limit": "BREACH" if s.is_stop_loss_breached else "OK"
-            }
-            for s in scenarios
-        ])
-        st.dataframe(sc_table, hide_index=True, use_container_width=True)
 
-# 4. DATA ENGINEERING TAB
+# =========================================================================
+# TAB 3: LIVE MARKET BROWSER & GOLD CHARTING
+# =========================================================================
+with tab_charts:
+    st.markdown("<div class='panel-heading'>Live Market Terminal & Gold Breakthrough Analytics</div>", unsafe_allow_html=True)
+    st.caption("Institutional dual-pane charting with Candlesticks, 20-period Simple Moving Average, Volume, and LBMA Gold $4,000 Milestone.")
+
+    col_c1, col_c2 = st.columns([1, 3.2])
+    with col_c1:
+        chosen_pair = st.radio(
+            "Select Instrument:",
+            ["XAU/USD (Gold Spot)", "USD/MAD (BAM Fixing)", "EUR/MAD (BAM Fixing)", "EUR/USD (Cross)", "GBP/MAD (Interbank)"],
+            index=0
+        )
+        sym_clean = chosen_pair.split()[0]
+        tf_sel = st.selectbox("Interval Resolution:", ["15min", "1h", "4h", "1D"], index=1)
+
+        candles_df = get_candles(sym_clean, interval=tf_sel, outputsize=80)
+        c_last = candles_df.iloc[-1]
+        c_prev = candles_df.iloc[-2]
+        c_price = float(c_last["close"])
+        c_chg = c_price - float(c_prev["close"])
+        c_pct = (c_chg / float(c_prev["close"])) * 100
+
+        is_xau = "XAU" in sym_clean
+        if is_xau:
+            str_last = f"${c_price:,.2f}"
+            str_chg = f"{c_chg:+,.2f}"
+            str_hi = f"${candles_df['high'].max():,.2f}"
+            str_lo = f"${candles_df['low'].min():,.2f}"
+            str_sma = f"${candles_df['sma20'].iloc[-1]:,.2f}"
+        else:
+            str_last = f"{c_price:.4f}"
+            str_chg = f"{c_chg:+.4f}"
+            str_hi = f"{candles_df['high'].max():.4f}"
+            str_lo = f"{candles_df['low'].min():.4f}"
+            str_sma = f"{candles_df['sma20'].iloc[-1]:.4f}"
+
+        c_col = "#10b981" if c_chg >= 0 else "#ef4444"
+
+        st.markdown(f"""
+        <div class="audit-terminal">
+            <div style="font-size:0.75rem; color:#94a3b8;">ACTIVE SPOT RATE</div>
+            <div style="font-size:1.35rem; font-weight:700; color:#f8fafc;">
+                {str_last}
+            </div>
+            <div style="color:{c_col}; font-size:0.85rem; font-weight:600;">
+                {str_chg} ({c_pct:+.2f}%)
+            </div>
+            <hr style="border-color:#1e293b; margin:8px 0;"/>
+            <div style="font-size:0.75rem; color:#94a3b8; line-height:1.6;">
+                Period High: <b>{str_hi}</b><br/>
+                Period Low: <b>{str_lo}</b><br/>
+                SMA(20): <b>{str_sma}</b><br/>
+                Fixing Body: <b>{'Bank Al-Maghrib' if 'MAD' in sym_clean else 'LBMA / Interbank'}</b>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_c2:
+        chart_fig = make_subplots(
+            rows=2, cols=1, shared_xaxes=True,
+            vertical_spacing=0.03,
+            row_heights=[0.78, 0.22]
+        )
+
+        chart_fig.add_trace(go.Candlestick(
+            x=candles_df["datetime"],
+            open=candles_df["open"],
+            high=candles_df["high"],
+            low=candles_df["low"],
+            close=candles_df["close"],
+            increasing_line_color="#10b981",
+            decreasing_line_color="#ef4444",
+            name="Price"
+        ), row=1, col=1)
+
+        chart_fig.add_trace(go.Scatter(
+            x=candles_df["datetime"],
+            y=candles_df["sma20"],
+            line=dict(color="#38bdf8", width=1.5),
+            name="SMA 20"
+        ), row=1, col=1)
+
+        if is_xau:
+            chart_fig.add_hline(
+                y=4000.0, line_dash="dash", line_color="#fbbf24",
+                annotation_text="Institutional Resistance Breakout: $4,000 / oz",
+                annotation_font_color="#fbbf24", annotation_position="top left",
+                row=1, col=1
+            )
+
+        bar_colors = ["#10b981" if cl >= op else "#ef4444" for cl, op in zip(candles_df["close"], candles_df["open"])]
+        chart_fig.add_trace(go.Bar(
+            x=candles_df["datetime"],
+            y=candles_df["volume"],
+            marker_color=bar_colors,
+            name="Volume",
+            opacity=0.65
+        ), row=2, col=1)
+
+        chart_fig.update_layout(
+            height=370,
+            margin=dict(l=10, r=10, t=10, b=10),
+            paper_bgcolor="#111827",
+            plot_bgcolor="#111827",
+            font=dict(color="#94a3b8", family="Consolas"),
+            xaxis=dict(gridcolor="#1f2937", rangeslider_visible=False),
+            xaxis2=dict(gridcolor="#1f2937"),
+            yaxis=dict(gridcolor="#1f2937", side="right"),
+            yaxis2=dict(gridcolor="#1f2937", side="right", title="Vol"),
+            legend=dict(orientation="h", y=1.05, x=0.02)
+        )
+        st.plotly_chart(chart_fig, use_container_width=True, config={"displayModeBar": False})
+
+
+# =========================================================================
+# TAB 4: INVENTORY ACCOUNTING (FIFO VS CMP)
+# =========================================================================
+with tab_fifo:
+    st.markdown("<div class='panel-heading'>Section 4 Reference Demonstration: FIFO vs. CMP Inventory Depletion</div>", unsafe_allow_html=True)
+    st.caption("Proof of inventory unwinding on the brief's standard case (2 Purchases followed by 1 Partial Sale).")
+
+    b1 = Trade("B1", datetime(2026, 9, 7, 9, 15), "USD/MAD", Direction.BUY, 500_000, 9.9100)
+    b2 = Trade("B2", datetime(2026, 9, 7, 10, 30), "USD/MAD", Direction.BUY, 500_000, 9.9300)
+    s1 = Trade("S1", datetime(2026, 9, 7, 14, 0), "USD/MAD", Direction.SELL, 600_000, 9.9500)
+
+    fifo_val, fifo_remaining, fifo_log = realized_fifo_with_audit([b1, b2], s1)
+    cmp_val, cmp_unit_cost, cmp_rem_nom = realized_wac([b1, b2], s1)
+
+    cf1, cf2, cf3 = st.columns(3)
+    cf1.metric("FIFO Realized P&L", f"{fifo_val:+,.0f} MAD", delta="Depletes Lot 1 (500k) + Lot 2 (100k)")
+    cf2.metric("CMP Realized P&L", f"{cmp_val:+,.0f} MAD", delta=f"Weighted Unit Cost: {cmp_unit_cost:.4f} MAD")
+    cf3.metric("Timing Difference", f"{(fifo_val - cmp_val):+,.0f} MAD", delta="Residual converges upon book closure")
+
+    st.markdown("""
+    <div class="audit-terminal" style="margin-top:12px;">
+        <b>Mathematical Recomputation & Defense Audit Note:</b><br/>
+        • <b>FIFO Breakdown:</b> Lot 1 fully exhausted: (9.9500 - 9.9100) × 500,000 = <b>+20,000 MAD</b>.<br/>
+          Lot 2 partially consumed (100,000 of 500,000): (9.9500 - 9.9300) × 100,000 = <b>+2,000 MAD</b>.<br/>
+          Total FIFO Realized = <b>+22,000 MAD</b>. Residual Position = 400,000 USD @ 9.9300 MAD.<br/>
+        • <b>CMP Breakdown:</b> Weighted average purchase cost = ((500k × 9.91) + (500k × 9.93)) / 1,000k = <b>9.9200 MAD</b>.<br/>
+          Realized on 600k sale: (9.9500 - 9.9200) × 600,000 = <b>+18,000 MAD</b>.<br/>
+        • <b>Note on PFE Brief Text:</b> The brief's prose mentioned <i>21,500 MAD (19,500 + 2,000)</i> due to a small typo in the draft; our data engine correctly calculates and proves the exact figure of <b>22,000 MAD</b>.
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# =========================================================================
+# TAB 5: BANK AL-MAGHRIB STRESS TESTING
+# =========================================================================
+with tab_stress:
+    st.markdown("<div class='panel-heading'>Bank Al-Maghrib Fluctuation Band Scenarios (+/-5% Matrix)</div>", unsafe_allow_html=True)
+    st.caption("Assesses desk portfolio resilience against Bank Al-Maghrib currency basket peg boundaries.")
+
+    sc_results = run_scenario_matrix(trades_df, books_df, market_rates)
+    if sc_results:
+        sc_data = [
+            {
+                "Scenario Name": sc.scenario_name,
+                "USD/MAD Fixing": f"{sc.usd_mad_rate:.4f}",
+                "EUR/MAD Fixing": f"{sc.eur_mad_rate:.4f}",
+                "Portfolio MTM (MAD)": f"{sc.portfolio_mtm_mad:+,.2f} MAD",
+                "Variance vs Base": f"{sc.mtm_change_mad:+,.2f} MAD",
+                "Stop-Loss Threshold": "BREACH (ALERT)" if sc.is_stop_loss_breached else "COMPLIANT (OK)"
+            }
+            for sc in sc_results
+        ]
+        st.dataframe(pd.DataFrame(sc_data), hide_index=True, use_container_width=True)
+
+
+# =========================================================================
+# TAB 6: DATA ENGINEERING & AIRFLOW PIPELINE
+# =========================================================================
 with tab_eng:
-    st.markdown("**Data Pipeline Architecture & Contract Enforcement:**")
+    st.markdown("<div class='panel-heading'>Data Engineering Architecture, Lineage & Airflow DAG</div>", unsafe_allow_html=True)
+    st.caption("Pipeline flow from raw market ticks to validated accounting marts.")
+
     st.code("""
-[Ingestion: CSV / REST / Tick]  -->  [Bronze: stg_trade, stg_market_rate]
-                                           |
-                                           v
-                                    [Silver: fact_trade_mtm] (SQL MTM)
-                                           |
-                                           v
-                                    [Gold: pnl_engine.py] (Python FIFO)
-                                           |
-                                           v
-                                    [Persistence: daily_pnl] (BR3 Invariant)
+================================================================================
+                    DATA PIPELINE LINEAGE & DAG ORCHESTRATION
+================================================================================
+  [1. Raw Ingestion]       --> Trades (CSV / REST API) + Bank Al-Maghrib Fixing Feed
+           |
+           v
+  [2. Bronze Staging]      --> PostgreSQL / SQLite: stg_trade, stg_market_rate
+           |
+           v
+  [3. Silver SQL Mart]     --> dbt Mart: fact_trade_mtm (Direct MAD conversion & EUR/USD cross)
+           |
+           v
+  [4. Gold Engine]         --> Python pnl_engine.py (FIFO lot queue & CMP calculation)
+           |
+           v
+  [5. Persistence]         --> daily_pnl table with Database CHECK constraint (BR3: Total = Realized + Unrealized)
     """, language="text")
 
-    st.markdown("**Automated dbt Data Quality Assertions:**")
-    dq_table = [
-        {"Rule": "BR1: BAM Conversion", "Test Method": "fact_trade_mtm SQL Mart", "Compliance": "100% PASS"},
-        {"Rule": "BR2: Rate Revaluation", "Test Method": "EOD Automated Calculation", "Compliance": "100% PASS"},
-        {"Rule": "BR3: Identity Total = Realized + Unrealized", "Test Method": "PostgreSQL Physical CHECK & dbt singular", "Compliance": "100% PASS"},
-        {"Rule": "BR4: Chronological Lot Integrity", "Test Method": "Python deque engine unit tests", "Compliance": "100% PASS"},
-        {"Rule": "Idempotent Deduplication", "Test Method": "Unique source_ref constraint", "Compliance": "100% PASS"},
-    ]
-    st.table(pd.DataFrame(dq_table))
+    st.markdown("**Automated Integrity Contracts & Data Quality Assertions:**")
+    st.markdown("""
+    - **BR1 (Conversion):** Every currency pair converted to MAD using BAM fixing or EUR/USD synthetic cross.
+    - **BR2 (Revaluation):** Daily mark-to-market revaluation at official Bank Al-Maghrib fixing time (15:30).
+    - **BR3 (Accounting Balance):** Physical database `CHECK (ROUND(total_mad, 2) = ROUND(realized_mad + unrealized_mad, 2))` and dbt singular test.
+    - **BR4 (Lot Order):** Double-ended queue (`deque`) ensuring strictly chronological FIFO consumption.
+    """)

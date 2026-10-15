@@ -50,3 +50,19 @@ def test_reconciliation_unconfirmed_trade():
     res = run_reconciliation(fo, bo)
     assert res["summary"]["discrepancies"] == 1
     assert res["items"][0].status == "UNCONFIRMED_FO"
+
+
+def test_reconciliation_nominal_mismatch():
+    fo = pd.DataFrame([{
+        "source_ref": "T004", "currency_pair": "USD/MAD", "direction": "BUY",
+        "nominal": 1_000_000.0, "rate": 9.9200
+    }])
+    bo = pd.DataFrame([{
+        "trade_ref": "T004", "currency_pair": "USD/MAD", "direction": "BUY",
+        "settled_nominal": 950_000.0, "settled_rate": 9.9200,
+        "counterparty": "Attijariwafa Bank", "status": "SETTLED"
+    }])
+    res = run_reconciliation(fo, bo)
+    assert res["summary"]["discrepancies"] == 1
+    assert res["items"][0].status == "NOMINAL_MISMATCH"
+    assert res["items"][0].pnl_variance_mad == -496_000.0

@@ -250,23 +250,62 @@ def load_production_kaggle_dataset():
                 "VALUES (%s, %s, %s, %s, %s, %s, 'confirmed', %s) ON CONFLICT (source_ref) DO NOTHING",
                 (b_id, pair, direction, nominal, rate, ts, ref)
             )
-            # Matching Back-Office Settlement Record
-            cur.execute(
-                "INSERT INTO backoffice_settlement (trade_ref, currency_pair, direction, settled_nominal, settled_rate, settlement_date, counterparty, status) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, 'SETTLED') ON CONFLICT (trade_ref) DO NOTHING",
-                (ref, pair, direction, nominal, rate, ts.date() + timedelta(days=2), cp)
-            )
         else:
             cur.execute(
                 "INSERT OR REPLACE INTO trade (book_id, currency_pair, direction, nominal, rate, trade_ts, confidence, source_ref) "
                 "VALUES (?, ?, ?, ?, ?, ?, 'confirmed', ?)",
                 (b_id, pair, direction, nominal, rate, ts, ref)
             )
-            cur.execute(
-                "INSERT OR REPLACE INTO backoffice_settlement (trade_ref, currency_pair, direction, settled_nominal, settled_rate, settlement_date, counterparty, status) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, 'SETTLED')",
-                (ref, pair, direction, nominal, rate, ts.date() + timedelta(days=2), cp)
-            )
+
+        # Realistic Back-Office Settlement Matching with Banking Breaks:
+        # 1. Break Scenario: Rate Slippage on IB-BMCE-01 (+3.5 pips fee / slippage)
+        if ref == "IB-BMCE-01":
+            bo_nominal = nominal
+            bo_rate = round(rate + 0.0035, 4)
+            bo_status = "SETTLED"
+        # 2. Break Scenario: Nominal Mismatch on IB-ATTIJARI-01 (Partial fill due to counterparty credit ceiling)
+        elif ref == "IB-ATTIJARI-01":
+            bo_nominal = nominal - 100_000.0  # 1.4M settled vs 1.5M FO booked
+            bo_rate = rate
+            bo_status = "PARTIAL_SETTLEMENT"
+        # 3. Break Scenario: Unconfirmed SWIFT MT300 affirmation break on CROSS-ARB-02
+        elif ref == "CROSS-ARB-02":
+            bo_nominal = None  # Do not insert in BO! Simulates trade booked in FO but unconfirmed by BO
+            bo_rate = None
+            bo_status = None
+        else:
+            bo_nominal = nominal
+            bo_rate = rate
+            bo_status = "SETTLED"
+
+        if bo_nominal is not None:
+            if is_pg:
+                cur.execute(
+                    "INSERT INTO backoffice_settlement (trade_ref, currency_pair, direction, settled_nominal, settled_rate, settlement_date, counterparty, status) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (trade_ref) DO NOTHING",
+                    (ref, pair, direction, bo_nominal, bo_rate, ts.date() + timedelta(days=2), cp, bo_status)
+                )
+            else:
+                cur.execute(
+                    "INSERT OR REPLACE INTO backoffice_settlement (trade_ref, currency_pair, direction, settled_nominal, settled_rate, settlement_date, counterparty, status) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (ref, pair, direction, bo_nominal, bo_rate, ts.date() + timedelta(days=2), cp, bo_status)
+                )
+
+    # 4. Break Scenario: Orphan BO Settlement with no FO Ticket (Unbooked dealer execution)
+    orphan_ref = "BO-ORPHAN-BARCLAYS-01"
+    if is_pg:
+        cur.execute(
+            "INSERT INTO backoffice_settlement (trade_ref, currency_pair, direction, settled_nominal, settled_rate, settlement_date, counterparty, status) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (trade_ref) DO NOTHING",
+            (orphan_ref, "GBP/MAD", "BUY", 300000.0, 12.6500, business_days[-1] + timedelta(days=2), "Barclays Bank London", "UNCONFIRMED_FO")
+        )
+    else:
+        cur.execute(
+            "INSERT OR REPLACE INTO backoffice_settlement (trade_ref, currency_pair, direction, settled_nominal, settled_rate, settlement_date, counterparty, status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (orphan_ref, "GBP/MAD", "BUY", 300000.0, 12.6500, business_days[-1] + timedelta(days=2), "Barclays Bank London", "UNCONFIRMED_FO")
+        )
     conn.commit()
 
     # Trigger P&L calculation across the books
