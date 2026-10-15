@@ -260,20 +260,31 @@ with col_nav:
     change = last_price - prev_price
     pct_change = (change / prev_price) * 100
 
+    is_gold = "XAU" in clean_symbol
+    price_str = f"${last_price:,.2f}" if is_gold else f"{last_price:.4f}"
+    change_str = f"{change:+.2f}" if is_gold else f"{change:+.4f}"
+    high_val = candles["high"].max()
+    low_val = candles["low"].min()
+    sma_val = candles["sma20"].iloc[-1]
+    high_str = f"{high_val:,.2f}" if is_gold else f"{high_val:.4f}"
+    low_str = f"{low_val:,.2f}" if is_gold else f"{low_val:.4f}"
+    sma_str = f"{sma_val:,.2f}" if is_gold else f"{sma_val:.4f}"
+    change_color = "#10b981" if change >= 0 else "#ef4444"
+
     st.markdown(f"""
     <div class="calc-box">
         <div style="color:#94a3b8; font-size:0.75rem;">CURRENT QUOTE</div>
         <div style="font-size:1.3rem; font-weight:700; color:#f8fafc;">
-            {f'${last_price:,.2f}' if 'XAU' in clean_symbol else f'{last_price:.4f}'}
+            {price_str}
         </div>
-        <div style="color:{'#10b981' if change >= 0 else '#ef4444'}; font-size:0.85rem;">
-            {change:+.2f if 'XAU' in clean_symbol else change:+.4f} ({pct_change:+.2f}%)
+        <div style="color:{change_color}; font-size:0.85rem;">
+            {change_str} ({pct_change:+.2f}%)
         </div>
         <hr style="border-color:#334155; margin:8px 0;"/>
         <div style="font-size:0.75rem; color:#94a3b8;">
-            24h High: <b>{candles['high'].max():,.2f if 'XAU' in clean_symbol else candles['high'].max():.4f}</b><br/>
-            24h Low: <b>{candles['low'].min():,.2f if 'XAU' in clean_symbol else candles['low'].min():.4f}</b><br/>
-            SMA(20): <b>{candles['sma20'].iloc[-1]:,.2f if 'XAU' in clean_symbol else candles['sma20'].iloc[-1]:.4f}</b>
+            24h High: <b>{high_str}</b><br/>
+            24h Low: <b>{low_str}</b><br/>
+            SMA(20): <b>{sma_str}</b>
         </div>
     </div>
     """, unsafe_allow_html=True)
