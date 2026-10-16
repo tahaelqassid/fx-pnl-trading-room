@@ -1,0 +1,55 @@
+
+## Getting Started
+
+### Prerequisites
+- Docker & Docker Compose
+- Python 3.11+
+
+### Setup
+
+```bash
+git clone https://github.com/tahaelqassid/fx-pnl-trading-room.git
+cd fx-pnl-trading-room
+cp .env.example .env   # fill in your credentials and API keys
+docker compose up -d
+pip install -r requirements.txt
+
+python ingestion/load_csv.py
+cd fx_pnl_dbt && dbt deps && dbt run && dbt test && cd ..
+python engine/run_daily_pnl.py
+```
+
+### Launch the dashboard
+
+```bash
+streamlit run dashboard/app.py
+```
+
+### Run tests
+
+```bash
+python tests/test_case_study.py
+python tests/test_risk_model.py
+```
+
+## Validation
+
+The calculation engine is validated against a reference case study. During development, this process surfaced two real defects: an arithmetic inconsistency in the source specification's worked FIFO example, and a cross-currency valuation error in the EUR/USD synthetic cross, both corrected and independently re-verified across the Python engine and the dbt SQL layer.
+
+| Indicator | Value |
+|---|---|
+| Total daily P&L (MTM) | +79,460 MAD |
+| Realized P&L | +20,000 MAD |
+| Unrealized P&L | +59,460 MAD |
+| FIFO P&L on 600K USD | +22,000 MAD |
+| WAC P&L on 600K USD | +18,000 MAD |
+
+## Known Limitations
+
+- Single-currency case study data; schema is multi-currency-ready but not yet exercised with a second accounting currency
+- Market-structure signal is a technical-analysis heuristic, not a validated predictive model — not investment advice
+- Real trading-room data is confidential and unavailable; the project uses a documented case study and simulated live feed instead
+
+## License
+
+Academic project — International University of Rabat (UIR), 2025–2026.
