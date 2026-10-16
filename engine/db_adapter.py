@@ -29,6 +29,33 @@ except Exception:
     pass
 
 
+ACTIVE_BACKEND_OVERRIDE = None
+
+
+def set_database_backend(backend: str):
+    """
+    Sets the database backend mode explicitly:
+    - 'AUTO': Uses PostgreSQL if reachable, falls back to SQLite
+    - 'POSTGRES': Forces PostgreSQL connection
+    - 'SQLITE': Forces local SQLite standalone database
+    """
+    global ACTIVE_BACKEND_OVERRIDE
+    b_upper = str(backend).upper().strip()
+    if b_upper in ["POSTGRES", "SQLITE"]:
+        ACTIVE_BACKEND_OVERRIDE = b_upper
+    else:
+        ACTIVE_BACKEND_OVERRIDE = None
+
+
+def get_active_backend() -> str:
+    """Returns 'POSTGRES' or 'SQLITE' based on active selection and availability."""
+    if ACTIVE_BACKEND_OVERRIDE == "SQLITE":
+        return "SQLITE"
+    elif ACTIVE_BACKEND_OVERRIDE == "POSTGRES":
+        return "POSTGRES" if is_postgres_available() else "SQLITE"
+    return "POSTGRES" if is_postgres_available() else "SQLITE"
+
+
 def is_postgres_available() -> bool:
     """Check if PostgreSQL container or host is actively reachable."""
     try:
@@ -53,7 +80,8 @@ def get_connection():
     - PostgreSQL connection if available
     - SQLite connection as resilient fallback
     """
-    if is_postgres_available():
+    backend = get_active_backend()
+    if backend == "POSTGRES" and is_postgres_available():
         import psycopg2
         return psycopg2.connect(
             host=os.getenv("DBT_HOST", "127.0.0.1"),
@@ -71,7 +99,13 @@ def get_connection():
 
 def get_db_mode() -> str:
     """Returns 'PostgreSQL (Active)' or 'SQLite (Standalone Fallback)'."""
-    return "PostgreSQL (Live Container)" if is_postgres_available() else "SQLite (High-Availability Standalone)"
+    backend = get_active_backend()
+    if backend == "POSTGRES" and is_postgres_available():
+        return "PostgreSQL 16 (Live Docker Container & Airflow DAG)"
+    elif ACTIVE_BACKEND_OVERRIDE == "POSTGRES" and not is_postgres_available():
+        return "PostgreSQL (Offline - Switched to SQLite Backup)"
+    else:
+        return "SQLite 3 (Local Standalone Backup)"
 
 
 def init_database(force_reinit: bool = False):

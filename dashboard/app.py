@@ -19,7 +19,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 load_dotenv(dotenv_path=PROJECT_ROOT / ".env")
 
-from engine.db_adapter import get_connection, read_df, execute_write, get_db_mode, init_database
+from engine.db_adapter import (
+    get_connection, read_df, execute_write, get_db_mode, init_database,
+    set_database_backend, get_active_backend, is_postgres_available
+)
 from engine.risk_model import assess_book, breach_probability, daily_volatility_mad
 from engine.market_data import get_candles
 from engine.pnl_engine import (
@@ -160,9 +163,21 @@ with st.sidebar:
     st.markdown("**Candidate:** Mohamed Taha El Qassid  \n**Track:** Data Engineering (4th Year)  \n**Base Currency:** MAD (Moroccan Dirham)")
     st.divider()
 
-    st.markdown("**Storage Engine Status**")
-    db_mode = get_db_mode()
-    st.code(db_mode, language="text")
+    st.markdown("**Storage Engine Backend**")
+    backend_choice = st.selectbox(
+        "Active Database:",
+        ["Auto-Detect (Docker / SQLite)", "PostgreSQL (Docker + Airflow DAG)", "SQLite (Standalone Backup)"],
+        index=0,
+        help="Switch dynamically between Dockerized PostgreSQL and local SQLite backup."
+    )
+    if "PostgreSQL" in backend_choice:
+        set_database_backend("POSTGRES")
+    elif "SQLite" in backend_choice:
+        set_database_backend("SQLITE")
+    else:
+        set_database_backend("AUTO")
+
+    st.code(get_db_mode(), language="text")
 
     st.markdown("**Dataset & Scenario Selection**")
     if st.button("PFE Reference Case (4 Trades)", use_container_width=True, help="Loads exact 4 benchmark trades from Chapter 10 of PFE brief (+79,460 MAD total MTM)"):
@@ -711,6 +726,26 @@ with tab_stress:
 with tab_eng:
     st.markdown("<div class='panel-heading'>Data Engineering Architecture, Lineage & Airflow DAG</div>", unsafe_allow_html=True)
     st.caption("Pipeline flow from raw market ticks to validated accounting marts.")
+
+    col_af1, col_af2 = st.columns([2, 1.2])
+    with col_af1:
+        st.markdown(f"**Active Database Engine:** `{get_db_mode()}`")
+        if is_postgres_available():
+            st.markdown("Airflow Web UI: [http://localhost:8080](http://localhost:8080) (Credentials: `admin` / `admin`)")
+        else:
+            st.info("Docker is currently offline. The trading room is running in zero-dependency SQLite standalone mode.")
+    with col_af2:
+        if is_postgres_available():
+            if st.button("Trigger Airflow DAG (fx_pnl_eod)", use_container_width=True, help="Executes the full pipeline: Ingestion -> dbt -> Python Engine -> dbt tests"):
+                import subprocess
+                try:
+                    res = subprocess.run(["docker", "exec", "fx-pnl-airflow", "airflow", "dags", "trigger", "fx_pnl_eod"], capture_output=True, text=True, timeout=8)
+                    if res.returncode == 0:
+                        st.success("Airflow DAG 'fx_pnl_eod' triggered successfully! View live progress at http://localhost:8080")
+                    else:
+                        st.warning(f"Trigger response: {res.stderr or res.stdout}")
+                except Exception as e:
+                    st.error(f"Could not trigger DAG: {e}")
 
     st.code("""
 ================================================================================
