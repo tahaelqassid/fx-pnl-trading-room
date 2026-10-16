@@ -19,8 +19,7 @@ BAM_BENCHMARK_RATES = {
     "USD/MAD": 9.9500,
     "EUR/MAD": 10.8000,
     "EUR/USD": 1.0854,
-    "GBP/MAD": 12.6500,
-    "XAU/USD": 4035.50
+    "GBP/MAD": 12.6500
 }
 
 # Bank Al-Maghrib currency basket weights
@@ -48,15 +47,11 @@ def fetch_live_rates() -> Dict[str, float]:
             eur_usd = 1.0 / usd_eur
             gbp_mad = usd_mad / usd_gbp
             
-            # Gold price (LBMA spot benchmark crossing 4,000 milestone)
-            xau_usd = 4038.50
-            
             return {
                 "USD/MAD": round(usd_mad, 4),
                 "EUR/MAD": round(eur_mad, 4),
                 "EUR/USD": round(eur_usd, 4),
-                "GBP/MAD": round(gbp_mad, 4),
-                "XAU/USD": round(xau_usd, 2)
+                "GBP/MAD": round(gbp_mad, 4)
             }
     except Exception as e:
         # Fallback to BAM reference fixing if network or provider unavailable

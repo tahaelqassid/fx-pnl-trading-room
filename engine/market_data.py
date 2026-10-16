@@ -1,8 +1,7 @@
 """
-Market Data Engine for Institutional FX & Commodities.
+Market Data Engine for Institutional FX Trading Room.
 Provides high-resolution candlestick series, moving averages, and technical indicators.
 Features authentic market pricing:
-- Gold (XAU/USD): Breaking out and crossing above the historic $4,000/oz level.
 - USD/MAD & EUR/MAD: Moroccan Central Bank (Bank Al-Maghrib) fixing dynamics.
 - EUR/USD & GBP/MAD: Major liquid interbank currency pairs.
 """
@@ -25,14 +24,7 @@ def _generate_institutional_candles(symbol: str, interval: str, outputsize: int)
     timestamps = [now - timedelta(minutes=step_minutes * i) for i in range(outputsize)]
     timestamps.reverse()
 
-    if "XAU" in symbol or "GOLD" in symbol.upper():
-        np.random.seed(101)
-        # Gold breaks out from 3,985 through 4,000 up to 4,045+
-        progression = np.linspace(-20.0, 38.0, outputsize)
-        volatility = np.cumsum(np.random.normal(0.15, 1.6, outputsize))
-        price_series = 3995.0 + progression + volatility
-        decimals = 2
-    elif "USD/MAD" in symbol:
+    if "USD/MAD" in symbol:
         np.random.seed(42)
         volatility = np.cumsum(np.random.normal(0.0001, 0.0028, outputsize))
         price_series = 9.9420 + volatility
@@ -56,7 +48,7 @@ def _generate_institutional_candles(symbol: str, interval: str, outputsize: int)
     candles = []
     for i, t in enumerate(timestamps):
         close_p = round(float(price_series[i]), decimals)
-        intra_spread = abs(np.random.normal(0, 0.0012 if decimals > 2 else 3.2))
+        intra_spread = abs(np.random.normal(0, 0.0012))
         open_p = round(float(price_series[i - 1]) if i > 0 else close_p - 0.0004, decimals)
         high_p = round(max(open_p, close_p) + intra_spread, decimals)
         low_p = round(min(open_p, close_p) - intra_spread, decimals)

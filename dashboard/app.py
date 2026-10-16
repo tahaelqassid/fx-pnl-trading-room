@@ -144,12 +144,10 @@ def get_market_fixings():
         "WHERE rate_date = (SELECT MAX(rate_date) FROM market_rate)"
     )
     if rates_df.empty:
-        return {"USD/MAD": 9.9500, "EUR/MAD": 10.8000, "EUR/USD": 1.0854, "GBP/MAD": 12.6500, "XAU/USD": 4038.50}
+        return {"USD/MAD": 9.9500, "EUR/MAD": 10.8000, "EUR/USD": 1.0854, "GBP/MAD": 12.6500}
     r_map = {row["currency_pair"]: float(row["closing_rate"]) for _, row in rates_df.iterrows()}
     if "EUR/MAD" in r_map and "USD/MAD" in r_map and "EUR/USD" not in r_map:
         r_map["EUR/USD"] = round(r_map["EUR/MAD"] / r_map["USD/MAD"], 4)
-    if "XAU/USD" not in r_map:
-        r_map["XAU/USD"] = 4038.50
     return r_map
 
 
@@ -210,12 +208,12 @@ st.markdown(f"""
 # ----------------- LIVE MARKET RATES STRIP -----------------
 ticker_html = "<div class='ticker-strip'>"
 for p_code, p_rate in market_rates.items():
-    if "XAU" in p_code:
-        r_display = f"${p_rate:,.2f}"
-        cls = "ticker-green"
-    elif "EUR" in p_code:
+    if "EUR" in p_code:
         r_display = f"{p_rate:.4f}"
         cls = "ticker-blue"
+    elif "USD" in p_code:
+        r_display = f"{p_rate:.4f}"
+        cls = "ticker-green"
     else:
         r_display = f"{p_rate:.4f}"
         cls = "ticker-rate"
@@ -235,6 +233,54 @@ trades_df = read_df("SELECT * FROM trade ORDER BY trade_ts DESC")
 pnl_df = read_df("SELECT * FROM daily_pnl ORDER BY pnl_date ASC")
 
 if not trades_df.empty:
+    trades_df["trade_ts"] = pd.to_datetime(trades_df["trade_ts"])
+    all_trade_dates = sorted(trades_df["trade_ts"].dt.date.unique(), reverse=True)
+    all_trade_months = sorted(trades_df["trade_ts"].dt.strftime("%Y-%m").unique(), reverse=True)
+else:
+    all_trade_dates = []
+    all_trade_months = []
+
+# ----------------- CALENDAR & TRADING PERIOD NAVIGATION -----------------
+col_cal1, col_cal2, col_cal3 = st.columns([1.8, 1.8, 2.4])
+with col_cal1:
+    filter_mode = st.selectbox(
+        "📅 Trading Period Filter:",
+        ["All Sessions (Full Portfolio)", "Filter by Month", "Filter by Specific Day", "PFE Benchmark (2026-09-07)"],
+        index=0,
+        help="Select calendar period to filter trades, recompute executive KPIs, and audit reconciliation."
+    )
+
+if filter_mode == "Filter by Month" and all_trade_months:
+    with col_cal2:
+        month_labels = {m: pd.to_datetime(m + "-01").strftime("%B %Y") for m in all_trade_months}
+        sel_month = st.selectbox("Select Month:", list(month_labels.keys()), format_func=lambda x: month_labels[x])
+        trades_scope = trades_df[trades_df["trade_ts"].dt.strftime("%Y-%m") == sel_month].copy()
+        scope_title = f"Month: {month_labels[sel_month]}"
+elif filter_mode == "Filter by Specific Day" and all_trade_dates:
+    with col_cal2:
+        default_d = all_trade_dates[0] if all_trade_dates else date(2026, 9, 7)
+        sel_day = st.date_input("Select Trading Day:", value=default_d, min_value=min(all_trade_dates), max_value=max(all_trade_dates))
+        trades_scope = trades_df[trades_df["trade_ts"].dt.date == sel_day].copy()
+        scope_title = f"Day: {sel_day.strftime('%Y-%m-%d')}"
+elif filter_mode == "PFE Benchmark (2026-09-07)":
+    benchmark_d = date(2026, 9, 7)
+    trades_scope = trades_df[trades_df["trade_ts"].dt.date == benchmark_d].copy()
+    scope_title = "PFE Benchmark Session (2026-09-07)"
+else:
+    trades_scope = trades_df.copy()
+    scope_title = f"All Trading Sessions ({len(all_trade_dates)} active days)"
+
+with col_cal3:
+    n_scope = len(trades_scope)
+    st.markdown(f"""
+    <div style="padding: 7px 12px; background: rgba(30, 41, 59, 0.7); border: 1px solid #334155; border-radius: 6px; margin-top: 20px;">
+        <span style="font-size:0.75rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px;">Active Period Scope:</span>
+        <b style="font-size:0.85rem; color:#38bdf8; margin-left:6px;">{scope_title}</b>
+        <span style="background:#1e293b; color:#10b981; font-size:0.75rem; padding:2px 6px; border-radius:4px; margin-left:8px; font-weight:600;">{n_scope} Trades</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+if not trades_scope.empty:
     eng_trades = [
         Trade(
             trade_id=str(r["source_ref"]),
@@ -245,7 +291,7 @@ if not trades_df.empty:
             rate=float(r["rate"]),
             confidence=str(r["confidence"])
         )
-        for _, r in trades_df.iterrows()
+        for _, r in trades_scope.iterrows()
     ]
     portfolio = compute_book_analytics(eng_trades, market_rates, method=active_method)
     tot_mtm = portfolio["total_mtm_mad"]
@@ -253,7 +299,7 @@ if not trades_df.empty:
     tot_unrealized = portfolio["total_unrealized_mad"]
     tot_exposure = sum(
         float(r["nominal"]) * (float(r["rate"]) if r["currency_pair"].endswith("/MAD") else float(r["rate"]) * market_rates.get("USD/MAD", 9.95))
-        for _, r in trades_df.iterrows()
+        for _, r in trades_scope.iterrows()
     )
     identity_verified = portfolio.get("identity_holds", True)
 else:
@@ -278,7 +324,7 @@ st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True)
 tab_desk, tab_recon, tab_charts, tab_fifo, tab_stress, tab_eng = st.tabs([
     "Trading Desk & Blotter",
     "FO / BO Reconciliation & Dispute Hub",
-    "Live Market Browser & Gold Charting",
+    "Bank Al-Maghrib Market Fixings & FX Terminal",
     "Inventory Accounting (FIFO vs CMP)",
     "BAM Stress Testing (+/-5% Band)",
     "Data Engineering & Airflow Pipeline"
@@ -298,10 +344,10 @@ with tab_desk:
         sel_desk = st.selectbox("Trading Desk Filter:", desk_list, index=0)
 
     if sel_desk == "All Trading Desks":
-        filtered_trades = trades_df.copy()
+        filtered_trades = trades_scope.copy()
     else:
         book_target_id = int(books_df[books_df["name"] == sel_desk]["id"].iloc[0])
-        filtered_trades = trades_df[trades_df["book_id"] == book_target_id].copy()
+        filtered_trades = trades_scope[trades_scope["book_id"] == book_target_id].copy()
 
     if not filtered_trades.empty:
         bo_settlements = read_df("SELECT trade_ref, counterparty FROM backoffice_settlement")
@@ -426,7 +472,15 @@ with tab_recon:
     st.caption("Detects rate slippages, nominal mismatches, unconfirmed SWIFT affirmations, and computes accounting variance in MAD.")
 
     bo_records = read_df("SELECT * FROM backoffice_settlement")
-    recon_result = run_reconciliation(trades_df, bo_records, usd_mad_rate=market_rates.get("USD/MAD", 9.9500))
+    c_rc_scope, c_rc_flt = st.columns([1.5, 3])
+    with c_rc_scope:
+        recon_scope_opt = st.selectbox(
+            "Reconciliation Scope:",
+            [f"Active Filter Scope ({len(trades_scope)} Trades)", "Entire Trading Book (All Dates)"],
+            index=0
+        )
+    target_trades_recon = trades_scope if "Active Filter Scope" in recon_scope_opt else trades_df
+    recon_result = run_reconciliation(target_trades_recon, bo_records, usd_mad_rate=market_rates.get("USD/MAD", 9.9500))
     rec_sum = recon_result["summary"]
 
     r1, r2, r3, r4 = st.columns(4)
@@ -439,8 +493,7 @@ with tab_recon:
         r_df = recon_result["items_df"].copy()
 
         # Status filter
-        c_rf1, c_rf2 = st.columns([1.5, 3])
-        with c_rf1:
+        with c_rc_flt:
             stat_filter = st.selectbox(
                 "Filter Discrepancies:",
                 ["All Records", "Breaks Only (Discrepancies)", "Rate Slippage", "Nominal Mismatch", "Unconfirmed SWIFT", "Matched Trades"],
@@ -498,17 +551,17 @@ with tab_recon:
 
 
 # =========================================================================
-# TAB 3: LIVE MARKET BROWSER & GOLD CHARTING
+# TAB 3: BANK AL-MAGHRIB MARKET FIXINGS & FX TERMINAL
 # =========================================================================
 with tab_charts:
-    st.markdown("<div class='panel-heading'>Live Market Terminal & Gold Breakthrough Analytics</div>", unsafe_allow_html=True)
-    st.caption("Institutional dual-pane charting with Candlesticks, 20-period Simple Moving Average, Volume, and LBMA Gold $4,000 Milestone.")
+    st.markdown("<div class='panel-heading'>Bank Al-Maghrib Market Fixings & FX Terminal</div>", unsafe_allow_html=True)
+    st.caption("Institutional dual-pane charting with Candlesticks, 20-period Simple Moving Average, Volume, and central bank fixings.")
 
     col_c1, col_c2 = st.columns([1, 3.2])
     with col_c1:
         chosen_pair = st.radio(
             "Select Instrument:",
-            ["XAU/USD (Gold Spot)", "USD/MAD (BAM Fixing)", "EUR/MAD (BAM Fixing)", "EUR/USD (Cross)", "GBP/MAD (Interbank)"],
+            ["USD/MAD (BAM Fixing)", "EUR/MAD (BAM Fixing)", "EUR/USD (Cross)", "GBP/MAD (Interbank)"],
             index=0
         )
         sym_clean = chosen_pair.split()[0]
@@ -521,19 +574,11 @@ with tab_charts:
         c_chg = c_price - float(c_prev["close"])
         c_pct = (c_chg / float(c_prev["close"])) * 100
 
-        is_xau = "XAU" in sym_clean
-        if is_xau:
-            str_last = f"${c_price:,.2f}"
-            str_chg = f"{c_chg:+,.2f}"
-            str_hi = f"${candles_df['high'].max():,.2f}"
-            str_lo = f"${candles_df['low'].min():,.2f}"
-            str_sma = f"${candles_df['sma20'].iloc[-1]:,.2f}"
-        else:
-            str_last = f"{c_price:.4f}"
-            str_chg = f"{c_chg:+.4f}"
-            str_hi = f"{candles_df['high'].max():.4f}"
-            str_lo = f"{candles_df['low'].min():.4f}"
-            str_sma = f"{candles_df['sma20'].iloc[-1]:.4f}"
+        str_last = f"{c_price:.4f}"
+        str_chg = f"{c_chg:+.4f}"
+        str_hi = f"{candles_df['high'].max():.4f}"
+        str_lo = f"{candles_df['low'].min():.4f}"
+        str_sma = f"{candles_df['sma20'].iloc[-1]:.4f}"
 
         c_col = "#10b981" if c_chg >= 0 else "#ef4444"
 
@@ -551,7 +596,7 @@ with tab_charts:
                 Period High: <b>{str_hi}</b><br/>
                 Period Low: <b>{str_lo}</b><br/>
                 SMA(20): <b>{str_sma}</b><br/>
-                Fixing Body: <b>{'Bank Al-Maghrib' if 'MAD' in sym_clean else 'LBMA / Interbank'}</b>
+                Fixing Body: <b>{'Bank Al-Maghrib' if 'MAD' in sym_clean else 'Interbank / Reuters'}</b>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -580,14 +625,6 @@ with tab_charts:
             line=dict(color="#38bdf8", width=1.5),
             name="SMA 20"
         ), row=1, col=1)
-
-        if is_xau:
-            chart_fig.add_hline(
-                y=4000.0, line_dash="dash", line_color="#fbbf24",
-                annotation_text="Institutional Resistance Breakout: $4,000 / oz",
-                annotation_font_color="#fbbf24", annotation_position="top left",
-                row=1, col=1
-            )
 
         bar_colors = ["#10b981" if cl >= op else "#ef4444" for cl, op in zip(candles_df["close"], candles_df["open"])]
         chart_fig.add_trace(go.Bar(
@@ -688,7 +725,7 @@ with tab_eng:
   [3. Silver SQL Mart]     --> dbt Mart: fact_trade_mtm (Direct MAD conversion & EUR/USD cross)
            |
            v
-  [4. Gold Engine]         --> Python pnl_engine.py (FIFO lot queue & CMP calculation)
+  [4. Analytics Mart (P&L Engine)] --> Python pnl_engine.py (FIFO lot queue & CMP calculation)
            |
            v
   [5. Persistence]         --> daily_pnl table with Database CHECK constraint (BR3: Total = Realized + Unrealized)
