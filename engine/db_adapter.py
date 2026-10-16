@@ -18,6 +18,17 @@ load_dotenv(dotenv_path=ROOT_DIR / ".env")
 SQLITE_DB_PATH = ROOT_DIR / "db" / "fx_trading_room.db"
 
 
+try:
+    import psycopg2.extensions
+    import numpy as _np
+    psycopg2.extensions.register_adapter(_np.float64, psycopg2.extensions.Float)
+    psycopg2.extensions.register_adapter(_np.float32, psycopg2.extensions.Float)
+    psycopg2.extensions.register_adapter(_np.int64, psycopg2.extensions.AsIs)
+    psycopg2.extensions.register_adapter(_np.int32, psycopg2.extensions.AsIs)
+except Exception:
+    pass
+
+
 def is_postgres_available() -> bool:
     """Check if PostgreSQL container or host is actively reachable."""
     try:

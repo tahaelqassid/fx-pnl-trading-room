@@ -8,7 +8,7 @@ Generates structured, auditable corporate and interbank trades with authentic co
 """
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Any
-import numpy as np
+import math
 import pandas as pd
 from engine.db_adapter import get_connection, init_database
 
@@ -197,10 +197,10 @@ def load_production_kaggle_dataset():
     # Deterministic realistic fixing curve anchored to 2026-09-07 (USD/MAD=9.9500, EUR/MAD=10.8000, EUR/USD=1.0854, GBP/MAD=12.6500)
     for i, d in enumerate(b_days):
         day_offset = (d - date(2026, 9, 7)).days
-        u_fix = round(9.9500 + (day_offset * 0.0006) + (np.sin(i * 0.35) * 0.015), 4)
-        e_fix = round(10.8000 + (day_offset * 0.0005) + (np.cos(i * 0.30) * 0.018), 4)
-        eu_fix = round(e_fix / u_fix, 4)
-        g_fix = round(12.6500 + (day_offset * 0.0008) + (np.sin(i * 0.25) * 0.025), 4)
+        u_fix = float(round(9.9500 + (day_offset * 0.0006) + (math.sin(i * 0.35) * 0.015), 4))
+        e_fix = float(round(10.8000 + (day_offset * 0.0005) + (math.cos(i * 0.30) * 0.018), 4))
+        eu_fix = float(round(e_fix / u_fix, 4))
+        g_fix = float(round(12.6500 + (day_offset * 0.0008) + (math.sin(i * 0.25) * 0.025), 4))
 
         # Force exact benchmark fixing on 2026-09-07
         if d == date(2026, 9, 7):
@@ -212,12 +212,12 @@ def load_production_kaggle_dataset():
                 cur.execute(
                     "INSERT INTO market_rate (currency_pair, rate_date, closing_rate, source) "
                     "VALUES (%s, %s, %s, %s) ON CONFLICT (currency_pair, rate_date) DO UPDATE SET closing_rate=EXCLUDED.closing_rate",
-                    (pair, d, val, source)
+                    (pair, d, float(val), source)
                 )
             else:
                 cur.execute(
                     "INSERT OR REPLACE INTO market_rate (currency_pair, rate_date, closing_rate, source) "
-                    "VALUES (?, ?, ?, ?)", (pair, d, val, source)
+                    "VALUES (?, ?, ?, ?)", (pair, d, float(val), source)
                 )
     conn.commit()
 
