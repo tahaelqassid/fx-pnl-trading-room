@@ -11,7 +11,7 @@ default_args = {
 with DAG(
     dag_id="fx_pnl_eod",
     default_args=default_args,
-    schedule="0 18 * * *",
+    schedule="30 15 * * *",
     start_date=datetime(2026, 9, 1),
     catchup=False,
     tags=["fx-pnl"],
