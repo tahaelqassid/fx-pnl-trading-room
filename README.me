@@ -1,55 +1,45 @@
+# FX P&L Trading Room Platform
 
-## Getting Started
+Automated FX Profit & Loss monitoring platform for a trading room, in MAD. Built as a data pipeline — ingestion, transformation, calculation, orchestration, data quality — not a single app.
 
-### Prerequisites
-- Docker & Docker Compose
-- Python 3.11+
+**Author:** Mohamed Taha El Qassid · Data Engineering, UIR · PFA Internship, DXC Technology
 
-### Setup
+## What it does
+
+- Calculates MTM, Realized, and Unrealized P&L (FIFO & WAC)
+- Automates the full daily pipeline with Apache Airflow
+- Enforces `total = realized + unrealized` at the database level
+- Pulls real FX market rates, not just synthetic data
+- Includes a statistical exposure-risk model and a backtested market-structure signal
+- Live Streamlit dashboard on top
+
+## Architecture
+CSV / Live Rates → PostgreSQL → dbt (SQL) → Python Engine (FIFO/WAC) → Airflow → dbt Tests → Dashboard
+
+
+## Stack
+
+PostgreSQL · dbt · Apache Airflow · Python · Streamlit · Docker Compose
+
+## Run it
 
 ```bash
-git clone https://github.com/tahaelqassid/fx-pnl-trading-room.git
-cd fx-pnl-trading-room
-cp .env.example .env   # fill in your credentials and API keys
 docker compose up -d
 pip install -r requirements.txt
-
 python ingestion/load_csv.py
 cd fx_pnl_dbt && dbt deps && dbt run && dbt test && cd ..
 python engine/run_daily_pnl.py
-```
-
-### Launch the dashboard
-
-```bash
 streamlit run dashboard/app.py
 ```
 
-### Run tests
+## Tests
 
 ```bash
 python tests/test_case_study.py
 python tests/test_risk_model.py
 ```
 
-## Validation
+## Notes
 
-The calculation engine is validated against a reference case study. During development, this process surfaced two real defects: an arithmetic inconsistency in the source specification's worked FIFO example, and a cross-currency valuation error in the EUR/USD synthetic cross, both corrected and independently re-verified across the Python engine and the dbt SQL layer.
-
-| Indicator | Value |
-|---|---|
-| Total daily P&L (MTM) | +79,460 MAD |
-| Realized P&L | +20,000 MAD |
-| Unrealized P&L | +59,460 MAD |
-| FIFO P&L on 600K USD | +22,000 MAD |
-| WAC P&L on 600K USD | +18,000 MAD |
-
-## Known Limitations
-
-- Single-currency case study data; schema is multi-currency-ready but not yet exercised with a second accounting currency
-- Market-structure signal is a technical-analysis heuristic, not a validated predictive model — not investment advice
-- Real trading-room data is confidential and unavailable; the project uses a documented case study and simulated live feed instead
-
-## License
-
-Academic project — International University of Rabat (UIR), 2025–2026.
+- Case study data; real trading-room data is confidential and unavailable at this stage.
+- Market-structure signal is a technical indicator, not investment advice.
