@@ -48,7 +48,8 @@ services:
       - ./fx_pnl_dbt:/opt/airflow/fx_pnl_dbt
       - .:/opt/airflow/project
     command: >
-      bash -c "airflow db init &&
+      bash -c "rm -f /opt/airflow/airflow-webserver.pid &&
+      airflow db init &&
       airflow users create --username admin --password admin --firstname a --lastname b --role Admin --email a@a.com &&
       airflow standalone"
 
