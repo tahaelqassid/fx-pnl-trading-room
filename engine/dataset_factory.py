@@ -395,5 +395,4 @@ def load_production_kaggle_dataset():
     from engine.run_daily_pnl import run_eod_calculation
     run_eod_calculation()
 
-    cur.close()
-    conn.close()\n
+    conn.close()
